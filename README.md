@@ -25,6 +25,8 @@
 
 ## 使い方
 
+公開URL：https://just-ot-goodful.github.io/oboete-touch/ （iPadやスマートフォンのブラウザでそのまま開けます）
+
 `index.html` をブラウザで開くだけで動きます。GitHub Pagesを有効にすると、URLからiPadで開けます。
 
 ## 注意
