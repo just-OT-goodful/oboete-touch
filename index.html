@@ -3,6 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="おぼえてタッチ">
+<meta name="theme-color" content="#1B7A6D">
 <style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;font:14px system-ui,sans-serif}img{max-width:100%}[hidden]{display:none!important}</style>
 <title>おぼえてタッチ</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -355,7 +359,22 @@ input[type="text"]{flex:1;min-width:0;min-height:52px;border-radius:12px;border:
 input[type="text"]:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 
 *,*::before,*::after{box-sizing:border-box}
-html,body{overflow-x:hidden}
+/* iPad対策：html/bodyにoverflowを付けるとSafariで縦スクロールが止まるため、はみ出し防止は内側の.wrapで行う */
+.wrap{overflow-x:clip}
+html{-webkit-text-size-adjust:100%;touch-action:manipulation}
+.scene,.rounds,.hud,.msg,.stop{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+/* タブレット横向き：縦に収まらない課題は左右2列に並べる */
+@media (min-width:900px) and (orientation:landscape){
+  .wrap{max-width:1100px}
+  .rounds{margin:6px 0 2px}
+  .msg{min-height:2em}
+  .scene.shop,.scene.cook,.scene.bus,.scene.wallet{display:grid;grid-template-columns:1fr 1fr;grid-template-areas:"a b" "c b";align-items:center;justify-items:center;column-gap:28px;row-gap:14px;padding:18px 24px}
+  .scene.shop>.memo,.scene.cook>.potwrap,.scene.bus>.binfo,.scene.wallet>.binfo{grid-area:a}
+  .scene.shop>.shelf,.scene.cook>.shelf,.scene.bus>.bans,.scene.wallet>.bans{grid-area:b}
+  .scene.shop>.basket,.scene.cook>.basket,.scene.bus>.busbox,.scene.wallet>.purse{grid-area:c}
+  .scene.bus .bans,.scene.wallet .bans{width:min(100%,340px)}
+  .scene.bus .busbox{width:min(90%,320px)}
+}
 [hidden]{display:none!important}
 .medleft{width:100%}
 .scene,.scenewrap{max-width:100%}
