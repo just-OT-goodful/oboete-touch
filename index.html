@@ -8,6 +8,23 @@
 <meta name="apple-mobile-web-app-title" content="おぼえてタッチ">
 <meta name="theme-color" content="#1B7A6D">
 <style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;font:14px system-ui,sans-serif}img{max-width:100%}[hidden]{display:none!important}</style>
+<script>
+/* 端末でエラーが起きたとき、画面の下に内容を表示する（原因の確認用） */
+(function(){
+  function show(msg){
+    try{
+      var b=document.getElementById('errbar');
+      if(!b){b=document.createElement('div');b.id='errbar';
+        b.setAttribute('style','position:fixed;left:0;right:0;bottom:0;z-index:99;background:#B4643F;color:#fff;font:14px/1.5 sans-serif;padding:10px 14px;white-space:pre-wrap');
+        (document.body||document.documentElement).appendChild(b);}
+      b.textContent='エラーが起きました。この表示の写真を送ってください。\n'+msg+'\n'+navigator.userAgent;
+    }catch(e){}
+  }
+  window.addEventListener('error',function(e){show((e.message||'')+' (行 '+(e.lineno||'?')+')')});
+  window.addEventListener('unhandledrejection',function(e){show('Promise: '+(e.reason&&e.reason.message||e.reason))});
+  if(!Object.fromEntries){Object.fromEntries=function(a){var o={};for(var i=0;i<a.length;i++){o[a[i][0]]=a[i][1]}return o}}
+})();
+</script>
 <title>おぼえてタッチ</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -359,6 +376,16 @@ input[type="text"]{flex:1;min-width:0;min-height:52px;border-radius:12px;border:
 input[type="text"]:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 
 *,*::before,*::after{box-sizing:border-box}
+/* 古いiPad（iOS 14以前）向けの代替指定 */
+.card .back,.sky svg.lines,.fb,.pause{top:0;left:0;right:0;bottom:0}
+@supports not (aspect-ratio:1/1){
+  .sky{height:0;padding-bottom:75%}
+  .star{height:22.67%}
+  .card::before{content:"";display:block;padding-top:133.33%}
+  .card .face{position:absolute;top:0;left:0;right:0;bottom:0}
+  .ibadge,.rd{flex:none}
+}
+.ver{margin-top:14px;font-size:.8rem;color:var(--muted)}
 /* iPad対策：html/bodyにoverflowを付けるとSafariで縦スクロールが止まるため、はみ出し防止は内側の.wrapで行う */
 .wrap{overflow-x:clip}
 html{-webkit-text-size-adjust:100%;touch-action:manipulation}
@@ -469,6 +496,7 @@ html{-webkit-text-size-adjust:100%;touch-action:manipulation}
     <button class="btn sub" id="toRecords">記録</button>
     <button class="btn sub" id="toAbout">指導者向けの解説</button>
   </div>
+  <p class="ver">バージョン 1.4（2026年10月15日）</p>
 </section>
 
 <!-- ================= PLAY ================= -->
@@ -601,877 +629,1787 @@ html{-webkit-text-size-adjust:100%;touch-action:manipulation}
 </div>
 
 <script>
-(()=>{
-const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
-const store={get(k,d){try{const v=localStorage.getItem(k);return v?JSON.parse(v):d}catch(e){return d}},set(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch(e){}},del(k){try{localStorage.removeItem(k)}catch(e){}}};
-
-const GAMES=['shop','sushi','stars','phone','bus','med','cards','train','cook','locker','wallet','plan'];
-const DEF_LV={shop_f:2,shop_b:2,stars_f:2,stars_b:2,sushi:1,phone_f:4,phone_b:3,bus:2,med:2,cards:3,train:1,cook_f:2,cook_b:2,locker_f:4,locker_b:3,wallet:2,plan:2};
-
-/* ---------- 利用者（レベル・記録・設定を利用者ごとに保存） ---------- */
-const newId=()=>'u'+Date.now().toString(36)+(Math.random()*1e4|0);
-let users=store.get('ot3.users',null),cur=store.get('ot3.current',null);
-if(!users||!users.length){
-  const id=newId();users=[{id,name:'利用者1',c:Date.now()}];
-  ['settings','levels','history'].forEach(k=>{const v=store.get('ot3.'+k,null);if(v)store.set(`ot3.${k}.${id}`,v)}); // 以前の1人分のデータを引き継ぐ
-  cur=id;store.set('ot3.users',users);
-}
-if(!users.some(u=>u.id===cur))cur=users[0].id;
-let settings,levels,history;
-function loadUser(id){
-  cur=id;store.set('ot3.current',id);
-  settings=Object.assign({sound:true,bgm:true,voice:true,speed:'normal',minutes:7,reverse:false},store.get('ot3.settings.'+id,{}));
-  settings.games=Object.assign(Object.fromEntries(GAMES.map(g=>[g,true])),settings.games||{});
-  levels=Object.assign({},DEF_LV,store.get('ot3.levels.'+id,{}));
-  history=store.get('ot3.history.'+id,[]);
-}
-loadUser(cur);
-const curName=()=>(users.find(u=>u.id===cur)||{name:''}).name;
-const save=()=>{store.set('ot3.settings.'+cur,settings);store.set('ot3.levels.'+cur,levels);store.set('ot3.history.'+cur,history)};
-const SPEED={slow:1.5,normal:1,fast:.75};
-
-/* ---------- Art ---------- */
-const STAR_P='M50 6 L62 37 L95 38 L69 58 L78 91 L50 72 L22 91 L31 58 L5 38 L38 37 Z';
-const ITEMS=[
- {n:'りんご',y:'りんご',f:392,s:'<circle cx="50" cy="57" r="32" fill="#E0413A" stroke="#9E2420" stroke-width="3"/><path d="M50 26 Q52 16 58 11" stroke="#6B4423" stroke-width="5" fill="none" stroke-linecap="round"/><path d="M55 22 Q70 8 80 20 Q66 30 55 22Z" fill="#5BA545"/><ellipse cx="38" cy="46" rx="7" ry="10" fill="#fff" opacity=".35"/>'},
- {n:'バナナ',y:'バナナ',f:440,s:'<path d="M16 28 Q20 80 80 75 Q88 73 85 66 Q40 66 30 24 Q22 18 16 28Z" fill="#F4CF3A" stroke="#B8901A" stroke-width="3"/><path d="M82 72 L90 68" stroke="#5A4A20" stroke-width="5" stroke-linecap="round"/>'},
- {n:'食パン',y:'しょくパン',f:493.88,s:'<path d="M14 40 Q14 18 34 18 Q42 12 50 18 Q58 12 66 18 Q86 18 86 40 L80 44 L80 86 L20 86 L20 44Z" fill="#E8B76B" stroke="#9C6A2E" stroke-width="3" stroke-linejoin="round"/><path d="M27 44 L27 79 L73 79 L73 44 Q73 28 50 28 Q27 28 27 44Z" fill="#FBEFD6"/>'},
- {n:'魚',y:'さかな',f:523.25,s:'<ellipse cx="44" cy="50" rx="32" ry="18" fill="#4F8FD6" stroke="#2D5E99" stroke-width="3"/><path d="M74 50 L94 33 L94 67Z" fill="#4F8FD6" stroke="#2D5E99" stroke-width="3" stroke-linejoin="round"/><circle cx="28" cy="46" r="4" fill="#12233A"/>'},
- {n:'卵',y:'たまご',f:587.33,s:'<rect x="10" y="44" width="80" height="34" rx="6" fill="#E9E2D2" stroke="#A8997A" stroke-width="3"/>'+[26,50,74].map(x=>`<ellipse cx="${x}" cy="44" rx="11" ry="14" fill="#FFF8EC" stroke="#B9A27A" stroke-width="2.5"/>`).join('')},
- {n:'にんじん',y:'にんじん',f:659.25,s:'<path d="M50 94 L31 36 Q50 26 69 36Z" fill="#F07C2A" stroke="#B85414" stroke-width="3" stroke-linejoin="round"/><path d="M50 30 L39 9 M50 30 L50 5 M50 30 L61 9" stroke="#4E9B3A" stroke-width="6" stroke-linecap="round"/><path d="M41 52 L49 52 M45 67 L53 67" stroke="#B85414" stroke-width="3" stroke-linecap="round"/>'},
- {n:'牛乳',y:'ぎゅうにゅう',f:698.46,s:'<path d="M29 34 L50 15 L71 34 L71 90 L29 90Z" fill="#fff" stroke="#3C6FB0" stroke-width="3" stroke-linejoin="round"/><rect x="29" y="50" width="42" height="18" fill="#3C6FB0"/><path d="M29 34 L71 34" stroke="#3C6FB0" stroke-width="3"/>'},
- {n:'ぶどう',y:'ぶどう',f:783.99,s:'<path d="M50 20 Q52 10 60 8" stroke="#6B4423" stroke-width="4" fill="none" stroke-linecap="round"/>'+[[40,32],[60,32],[30,48],[50,48],[70,48],[40,64],[60,64],[50,80]].map(([x,y])=>`<circle cx="${x}" cy="${y}" r="11" fill="#7D4BA8" stroke="#4E2A70" stroke-width="2.5"/>`).join('')},
- {n:'キャベツ',y:'キャベツ',f:880,s:'<circle cx="50" cy="54" r="35" fill="#A3D06F" stroke="#5E8F35" stroke-width="3"/><path d="M50 20 Q37 54 50 89 M50 20 Q66 48 80 68 M50 20 Q33 46 20 66" stroke="#5E8F35" stroke-width="3" fill="none"/>'}
-];
-const itemSVG=i=>`<svg viewBox="0 0 100 100" role="img" aria-label="${ITEMS[i].n}">${ITEMS[i].s}</svg>`;
-
-const RICE='<rect x="26" y="40" width="68" height="27" rx="13" fill="#FAFAF5" stroke="#CFCBBE" stroke-width="2"/>';
-const SUSHI=[
- {n:'まぐろ',f:392,s:RICE+'<rect x="18" y="27" width="84" height="24" rx="11" fill="#C9283A"/><path d="M34 31 L42 47 M54 30 L62 48 M74 31 L82 47" stroke="#E2515F" stroke-width="3"/>'},
- {n:'サーモン',f:466.16,s:RICE+'<rect x="18" y="27" width="84" height="24" rx="11" fill="#F0884A"/><path d="M34 30 L42 48 M54 29 L62 49 M74 30 L82 48" stroke="#FFE3D0" stroke-width="3.5"/>'},
- {n:'玉子',f:523.25,s:RICE+'<rect x="18" y="24" width="84" height="28" rx="6" fill="#F4CE48"/><rect x="54" y="20" width="13" height="50" fill="#1E2A22"/>'},
- {n:'えび',f:622.25,s:RICE+'<path d="M18 40 Q20 26 40 26 L86 28 L104 18 L100 40 L86 46 L40 50 Q20 52 18 40Z" fill="#F7B6A6"/><path d="M36 28 L36 48 M50 27 L50 49 M64 28 L64 48 M78 28 L78 47" stroke="#E8603C" stroke-width="4"/>'},
- {n:'かっぱ巻き',f:698.46,s:[42,78].map(x=>`<circle cx="${x}" cy="44" r="19" fill="#1E2A22"/><circle cx="${x}" cy="44" r="14" fill="#FAFAF5"/><circle cx="${x}" cy="44" r="6" fill="#4FA247"/>`).join('')},
- {n:'いくら',f:783.99,s:'<rect x="30" y="34" width="60" height="32" rx="7" fill="#1E2A22"/>'+[38,48,58,68,78,43,53,63,73,83].map((x,i)=>`<circle cx="${x}" cy="${i<5?32:25}" r="6" fill="#F26B1D" stroke="#B4400A" stroke-width="1.5"/>`).join('')}
-];
-const sushiSVG=i=>`<svg viewBox="0 0 120 90" role="img" aria-label="${SUSHI[i].n}"><ellipse cx="60" cy="64" rx="56" ry="20" fill="#FFFFFF" stroke="#2F5E9E" stroke-width="4"/><ellipse cx="60" cy="62" rx="40" ry="11" fill="#EEF3FA"/>${SUSHI[i].s}</svg>`;
-const BUS_SVG='<svg viewBox="0 0 220 110"><rect x="8" y="12" width="200" height="74" rx="14" fill="#2F8F5B"/><rect x="8" y="56" width="200" height="12" fill="#F2E3B3"/><rect x="20" y="22" width="34" height="26" rx="4" fill="#CFE8F5"/><rect x="60" y="22" width="34" height="26" rx="4" fill="#CFE8F5"/><rect x="100" y="22" width="34" height="26" rx="4" fill="#CFE8F5"/><rect x="140" y="22" width="26" height="54" rx="3" fill="#BFDCEB" stroke="#1F6A43" stroke-width="2"/><rect x="174" y="22" width="26" height="30" rx="4" fill="#CFE8F5"/><circle cx="52" cy="88" r="14" fill="#2A2F33"/><circle cx="52" cy="88" r="6" fill="#9AA3A8"/><circle cx="168" cy="88" r="14" fill="#2A2F33"/><circle cx="168" cy="88" r="6" fill="#9AA3A8"/><rect x="196" y="62" width="10" height="8" rx="2" fill="#FFD966"/></svg>';
-const person=c=>`<svg viewBox="0 0 22 30"><circle cx="11" cy="7" r="6" fill="${c}"/><path d="M2 30 Q2 15 11 15 Q20 15 20 30Z" fill="${c}"/></svg>`;
-
-const ICON={
- shop:'<svg viewBox="0 0 100 80"><path d="M10 34 L90 34 L80 74 L20 74Z" fill="#C98A4B" stroke="#7A4E25" stroke-width="3" stroke-linejoin="round"/><path d="M30 34 Q50 4 70 34" fill="none" stroke="#7A4E25" stroke-width="5"/><circle cx="38" cy="30" r="12" fill="#E0413A"/><path d="M52 32 Q56 14 72 22 Q70 34 52 32Z" fill="#F4CF3A"/><path d="M26 48 L74 48 M28 60 L72 60" stroke="#7A4E25" stroke-width="2.5"/></svg>',
- sushi:'<svg viewBox="0 0 120 90"><ellipse cx="60" cy="64" rx="56" ry="20" fill="#FFFFFF" stroke="#2F5E9E" stroke-width="4"/>'+RICE+'<rect x="18" y="27" width="84" height="24" rx="11" fill="#F0884A"/><path d="M34 30 L42 48 M54 29 L62 49 M74 30 L82 48" stroke="#FFE3D0" stroke-width="3.5"/></svg>',
- stars:'<svg viewBox="0 0 100 80"><path d="M20 60 L45 30 L75 45 L85 18" stroke="#FFE9A8" stroke-width="2.5" fill="none" stroke-dasharray="4 4"/>'+[[20,60,9],[45,30,12],[75,45,9],[85,18,7]].map(([x,y,r])=>`<path transform="translate(${x-r} ${y-r}) scale(${r/50})" d="${STAR_P}" fill="#FFD966"/>`).join('')+'</svg>',
- phone:'<svg viewBox="0 0 100 80"><rect x="30" y="4" width="40" height="72" rx="8" fill="#1E2733"/><rect x="34" y="12" width="32" height="20" rx="3" fill="#0F151D"/>'+[0,1,2].map(r=>[0,1,2].map(c=>`<circle cx="${40+c*10}" cy="${42+r*10}" r="3.5" fill="#9FB3C8"/>`).join('')).join('')+'<path d="M74 18 Q84 28 74 38 M80 12 Q94 28 80 44" stroke="#2C8C58" stroke-width="3.5" fill="none" stroke-linecap="round"/></svg>',
- bus:BUS_SVG,
- med:'<svg viewBox="0 0 100 80"><rect x="6" y="20" width="88" height="46" rx="8" fill="#5B7FA6"/>'+[0,1,2,3].map(i=>`<rect x="${11+i*21}" y="25" width="17" height="36" rx="4" fill="#FFFFFF"/>`).join('')+'<circle cx="19.5" cy="43" r="5" fill="#D9473B"/><circle cx="40.5" cy="43" r="5" fill="#FFFFFF" stroke="#8C99A6" stroke-width="1.5"/><rect x="56" y="38" width="13" height="10" rx="5" fill="#F2C230"/><ellipse cx="82.5" cy="43" rx="6" ry="4" fill="#4A78C9"/></svg>'
-};
-const TITLE={shop:'スーパーで買い物',sushi:'回転寿司',stars:'星空',phone:'電話番号のメモ',bus:'バスの乗客数',med:'お薬カレンダー'};
-const SHORT={shop:'スーパー',sushi:'回転寿司',stars:'星空',phone:'電話メモ',bus:'バス',med:'お薬'};
-const TRAIN={shop:'ことばの記憶',sushi:'記憶の更新',stars:'位置の記憶',phone:'音の記憶',bus:'記憶＋計算',med:'組み合わせの記憶'};
-const STAR_NOTES=[261.63,293.66,329.63,392,440,523.25,587.33,659.25,783.99];
-const STAR_COL=['#FF8A7A','#FFB45C','#FFE066','#B6E36A','#5EE0C8','#6EC1FF','#9AA5FF','#D49BFF','#FF9AC8'];
-const CONST=['オリオン座','カシオペヤ座','はくちょう座','こと座','わし座','ペガスス座','さそり座','しし座','おおぐま座','ふたご座','おうし座','ぎょしゃ座','アンドロメダ座','ケフェウス座','うしかい座'];
-const PRAISE=['正解です','お見事です','その調子です','正確です'];
-const READ=['ゼロ','いち','に','さん','よん','ご','ろく','なな','はち','きゅう'];
-const NIN=['ゼロにん','ひとり','ふたり','さんにん','よにん','ごにん'];
-const SLOTS=[{n:'朝',y:'あさ'},{n:'昼',y:'ひる'},{n:'夕',y:'ゆう'},{n:'寝る前',y:'ねるまえ'}];
-const capsule=(a,b)=>`<rect x="6" y="10" width="48" height="20" rx="10" fill="${b}" stroke="#7A8A99" stroke-width="2"/><path d="M16 10 H30 V30 H16 A10 10 0 0 1 16 10Z" fill="${a}"/>`;
-const DRUGS=[
- {n:'赤い錠剤',y:'あかいじょうざい',s:'<circle cx="30" cy="20" r="14" fill="#D9473B" stroke="#9A2A22" stroke-width="2"/>'},
- {n:'白い錠剤',y:'しろいじょうざい',s:'<circle cx="30" cy="20" r="14" fill="#FFFFFF" stroke="#8C99A6" stroke-width="2.5"/><path d="M18 20 L42 20" stroke="#B5C0CA" stroke-width="2"/>'},
- {n:'青い錠剤',y:'あおいじょうざい',s:'<ellipse cx="30" cy="20" rx="20" ry="12" fill="#4A78C9" stroke="#2B4F8F" stroke-width="2"/>'},
- {n:'黄色のカプセル',y:'きいろのカプセル',s:capsule('#F2C230','#FFFFFF')},
- {n:'緑のカプセル',y:'みどりのカプセル',s:capsule('#3E9B5C','#FFFFFF')},
- {n:'粉薬',y:'こなぐすり',s:'<rect x="12" y="4" width="36" height="32" rx="3" fill="#E9F1FA" stroke="#7D97B3" stroke-width="2"/><path d="M12 12 L48 12" stroke="#7D97B3" stroke-width="2"/><text x="30" y="31" font-size="14" text-anchor="middle" fill="#4E6A88" font-weight="700">散</text>'}
-];
-const drugSVG=i=>`<svg viewBox="0 0 60 40" role="img" aria-label="${DRUGS[i].n}">${DRUGS[i].s}</svg>`;
-/* --- 追加課題の素材 --- */
-const DESTS=[{n:'東京',y:'とうきょう',c:'#E07A2E',f:392},{n:'大阪',y:'おおさか',c:'#2F6FB8',f:440},{n:'名古屋',y:'なごや',c:'#2E9B5C',f:523.25},{n:'京都',y:'きょうと',c:'#8B4DB0',f:587.33},{n:'横浜',y:'よこはま',c:'#D2405A',f:659.25},{n:'仙台',y:'せんだい',c:'#B8901A',f:783.99}];
-const trainSVG=c=>`<svg viewBox="0 0 240 92"><rect x="6" y="8" width="228" height="64" rx="16" fill="#F1F4F7" stroke="#3B4B5A" stroke-width="3"/><rect x="6" y="50" width="228" height="11" fill="${c}"/>${[0,1,2,3,4].map(i=>`<rect x="${20+i*42}" y="18" width="30" height="23" rx="4" fill="#9CC3DE"/>`).join('')}<circle cx="50" cy="80" r="9" fill="#3B4B5A"/><circle cx="190" cy="80" r="9" fill="#3B4B5A"/></svg>`;
-const INGR=[
- {n:'玉ねぎ',y:'たまねぎ',f:392,s:'<path d="M50 14 Q54 24 70 34 Q88 50 78 72 Q68 88 50 88 Q32 88 22 72 Q12 50 30 34 Q46 24 50 14Z" fill="#E9B46A" stroke="#A8732E" stroke-width="3"/><path d="M50 22 Q40 50 44 86 M50 22 Q60 50 56 86" stroke="#A8732E" stroke-width="2.5" fill="none"/>'},
- {n:'じゃがいも',y:'じゃがいも',f:440,s:'<ellipse cx="50" cy="54" rx="36" ry="28" fill="#C9A066" stroke="#8C6A38" stroke-width="3"/><circle cx="36" cy="46" r="3" fill="#8C6A38"/><circle cx="60" cy="62" r="3" fill="#8C6A38"/><circle cx="66" cy="44" r="2.5" fill="#8C6A38"/>'},
- {n:'肉',y:'にく',f:493.88,s:'<path d="M16 44 Q20 22 50 24 Q84 24 86 48 Q88 74 56 78 Q20 80 16 44Z" fill="#E07B7B" stroke="#A84848" stroke-width="3"/><path d="M28 50 Q50 40 74 52" stroke="#FFF1EC" stroke-width="5" fill="none" stroke-linecap="round"/>'},
- {n:'にんじん',y:'にんじん',f:523.25,s:ITEMS[5].s},
- {n:'トマト',y:'トマト',f:587.33,s:'<circle cx="50" cy="56" r="32" fill="#E5463A" stroke="#A42A20" stroke-width="3"/><path d="M50 26 L42 18 M50 26 L58 18 M50 26 L36 28 M50 26 L64 28 M50 26 L50 14" stroke="#3E8E3A" stroke-width="5" stroke-linecap="round"/>'},
- {n:'なす',y:'なす',f:659.25,s:'<path d="M60 26 Q84 38 78 66 Q72 90 46 86 Q22 82 26 58 Q30 40 48 32Z" fill="#6A3D8C" stroke="#42235C" stroke-width="3"/><path d="M48 32 Q54 18 66 20 Q70 30 60 26Z" fill="#3E8E3A"/>'},
- {n:'きのこ',y:'きのこ',f:698.46,s:'<path d="M16 50 Q16 18 50 18 Q84 18 84 50Z" fill="#B5793E" stroke="#7A4E25" stroke-width="3"/><rect x="40" y="50" width="20" height="34" rx="8" fill="#F3E6D0" stroke="#B9A27A" stroke-width="3"/>'},
- {n:'ピーマン',y:'ピーマン',f:783.99,s:'<path d="M30 30 Q50 22 70 30 Q84 50 72 78 Q50 90 28 78 Q16 50 30 30Z" fill="#4E9B3A" stroke="#2F6A22" stroke-width="3"/><path d="M50 24 Q50 12 58 8" stroke="#2F6A22" stroke-width="5" fill="none" stroke-linecap="round"/>'},
- {n:'カレールー',y:'カレールー',f:880,s:'<rect x="18" y="28" width="64" height="48" rx="6" fill="#8A5A2B" stroke="#5E3A18" stroke-width="3"/><path d="M39 28 V76 M61 28 V76 M18 52 H82" stroke="#5E3A18" stroke-width="2.5"/>'}
-];
-const ingSVG=i=>`<svg viewBox="0 0 100 100" role="img" aria-label="${INGR[i].n}">${INGR[i].s}</svg>`;
-const COINS=[{v:10,c:'#C77B45',s:'#8C4F25'},{v:50,c:'#E3E6E9',s:'#8A9096'},{v:100,c:'#D2D6DA',s:'#7A8086'},{v:500,c:'#E3C25A',s:'#A8862A'}];
-const coinSVG=i=>{const c=COINS[i];return `<svg viewBox="0 0 40 40" role="img" aria-label="${c.v}円玉"><circle cx="20" cy="20" r="17" fill="${c.c}" stroke="${c.s}" stroke-width="2.5"/><text x="20" y="25" font-size="${c.v>=100?11:13}" text-anchor="middle" font-weight="700" fill="#3B2A1C">${c.v}</text></svg>`};
-const DAYS=[{n:'月',y:'げつようび'},{n:'火',y:'かようび'},{n:'水',y:'すいようび'},{n:'木',y:'もくようび'},{n:'金',y:'きんようび'}];
-const EVENTS=[
- {n:'歯医者',y:'はいしゃ',s:'<path d="M18 6 Q30 2 42 6 Q50 10 46 22 Q42 36 38 34 Q34 28 30 28 Q26 28 22 34 Q18 36 14 22 Q10 10 18 6Z" fill="#FFFFFF" stroke="#4E6A88" stroke-width="2.5"/>'},
- {n:'散歩',y:'さんぽ',s:'<path d="M10 12 H26 Q30 22 44 24 Q52 26 52 32 H10Z" fill="#2E9B5C" stroke="#1F6A3E" stroke-width="2"/><path d="M10 32 H52" stroke="#1F6A3E" stroke-width="3"/>'},
- {n:'買い物',y:'かいもの',s:'<rect x="16" y="14" width="28" height="22" rx="3" fill="#E07A2E"/><path d="M23 14 Q23 4 30 4 Q37 4 37 14" stroke="#A8541A" stroke-width="3" fill="none"/>'},
- {n:'通院',y:'つういん',s:'<rect x="14" y="5" width="32" height="30" rx="4" fill="#FFFFFF" stroke="#D2405A" stroke-width="2.5"/><path d="M30 11 V29 M21 20 H39" stroke="#D2405A" stroke-width="5"/>'},
- {n:'お茶会',y:'おちゃかい',s:'<path d="M14 12 H40 V24 Q40 34 27 34 Q14 34 14 24Z" fill="#8B4DB0"/><path d="M40 15 Q50 15 48 22 Q46 27 40 27" stroke="#8B4DB0" stroke-width="3" fill="none"/><path d="M22 3 Q20 7 24 9 M30 2 Q28 6 32 8" stroke="#B9A0C9" stroke-width="2" fill="none"/>'},
- {n:'美容院',y:'びよういん',s:'<circle cx="18" cy="28" r="6" fill="none" stroke="#2F6FB8" stroke-width="3"/><circle cx="34" cy="30" r="6" fill="none" stroke="#2F6FB8" stroke-width="3"/><path d="M22 23 L44 6 M30 25 L48 10" stroke="#2F6FB8" stroke-width="3" stroke-linecap="round"/>'}
-];
-const evSVG=i=>`<svg viewBox="0 0 60 40" role="img" aria-label="${EVENTS[i].n}">${EVENTS[i].s}</svg>`;
-Object.assign(ICON,{
- cards:'<svg viewBox="0 0 100 80"><rect x="18" y="12" width="36" height="52" rx="5" fill="#B83B3B" stroke="#FFFFFF" stroke-width="3" transform="rotate(-10 36 38)"/><rect x="46" y="14" width="36" height="52" rx="5" fill="#FFFFFF" stroke="#2F7A55" stroke-width="3" transform="rotate(8 64 40)"/><circle cx="64" cy="40" r="9" fill="#E0413A" transform="rotate(8 64 40)"/></svg>',
- train:'<svg viewBox="0 0 100 80"><rect x="10" y="12" width="80" height="50" rx="12" fill="#E8EEF3" stroke="#3B4B5A" stroke-width="3"/><rect x="10" y="44" width="80" height="7" fill="#E07A2E"/><rect x="18" y="20" width="20" height="16" rx="3" fill="#9CC3DE"/><rect x="42" y="20" width="20" height="16" rx="3" fill="#9CC3DE"/><rect x="66" y="20" width="16" height="16" rx="3" fill="#9CC3DE"/><path d="M4 72 H96" stroke="#3B4B5A" stroke-width="4"/><circle cx="28" cy="66" r="5" fill="#3B4B5A"/><circle cx="72" cy="66" r="5" fill="#3B4B5A"/></svg>',
- cook:'<svg viewBox="0 0 100 80"><path d="M14 34 H86 V60 Q86 72 74 72 H26 Q14 72 14 60Z" fill="#4A5560"/><rect x="8" y="30" width="84" height="8" rx="4" fill="#5E6B77"/><path d="M6 42 H14 M86 42 H94" stroke="#4A5560" stroke-width="6" stroke-linecap="round"/><ellipse cx="50" cy="31" rx="34" ry="5" fill="#C98A2E"/><path d="M36 22 Q32 14 38 8 M50 22 Q46 12 52 6 M64 22 Q60 14 66 8" stroke="#B9C3CC" stroke-width="3" fill="none" stroke-linecap="round"/></svg>',
- locker:'<svg viewBox="0 0 100 80"><rect x="14" y="4" width="72" height="72" rx="4" fill="#8FA3B5"/><rect x="19" y="9" width="29" height="29" rx="2" fill="#C9D5E0"/><rect x="52" y="9" width="29" height="29" rx="2" fill="#C9D5E0"/><rect x="19" y="42" width="29" height="29" rx="2" fill="#C9D5E0"/><rect x="52" y="42" width="29" height="29" rx="2" fill="#F2C230"/><rect x="60" y="52" width="13" height="9" rx="2" fill="#3B2A00"/></svg>',
- wallet:'<svg viewBox="0 0 100 80"><rect x="10" y="20" width="78" height="50" rx="10" fill="#8C5A3C"/><rect x="58" y="34" width="34" height="22" rx="8" fill="#6E4329"/><circle cx="70" cy="45" r="4" fill="#E8C76A"/><circle cx="30" cy="16" r="11" fill="#E3C25A" stroke="#A8862A" stroke-width="2"/><circle cx="48" cy="12" r="9" fill="#D2D6DA" stroke="#7A8086" stroke-width="2"/></svg>',
- plan:'<svg viewBox="0 0 100 80"><rect x="14" y="10" width="72" height="64" rx="6" fill="#FFFFFF" stroke="#4E6A88" stroke-width="3"/><rect x="14" y="10" width="72" height="14" rx="6" fill="#D9604C"/><path d="M32 4 V16 M68 4 V16" stroke="#4E6A88" stroke-width="4" stroke-linecap="round"/>'+[0,1,2].map(r=>[0,1,2,3].map(c=>`<rect x="${22+c*15}" y="${32+r*13}" width="9" height="7" rx="1.5" fill="#C9D3DD"/>`).join('')).join('')+'<circle cx="56.5" cy="48.5" r="8" fill="none" stroke="#D9604C" stroke-width="3"/></svg>'
-});
-Object.assign(TITLE,{cards:'神経衰弱',train:'駅のホーム',cook:'カレー作り',locker:'コインロッカー',wallet:'お財布の中身',plan:'予定の伝言'});
-Object.assign(SHORT,{cards:'神経衰弱',train:'駅',cook:'カレー',locker:'ロッカー',wallet:'お財布',plan:'予定'});
-Object.assign(TRAIN,{cards:'位置の記憶',train:'記憶の更新',cook:'手順の記憶',locker:'数字の記憶',wallet:'記憶＋計算',plan:'組み合わせの記憶'});
-const STOPS=['駅前','市役所前','中央病院','図書館前','公園通り','郵便局前','商店街','体育館前','市民会館','大学前','二丁目','団地入口'];
-
-/* ---------- Sound ---------- */
-let actx=null,quiet=false;
-function ac(){try{if(!actx){const C=window.AudioContext||window.webkitAudioContext;if(C)actx=new C()}if(actx&&actx.state==='suspended')actx.resume()}catch(e){}return actx}
-function osc(f,dur,when,type,vol){const c=ac();if(!c)return;const t=c.currentTime+when,o=c.createOscillator(),g=c.createGain();o.type=type;o.frequency.value=f;g.gain.setValueAtTime(.0001,t);g.gain.exponentialRampToValueAtTime(vol,t+.015);g.gain.exponentialRampToValueAtTime(.0001,t+dur);o.connect(g);g.connect(c.destination);o.start(t);o.stop(t+dur+.05)}
-function tone(f,dur=.35,when=0,type='sine',vol=.22){if(settings.sound)osc(f,dur,when,type,vol)}
-function bell(f,dur=.7){tone(f,dur,0,'sine',.26);tone(f*2,dur*.45,0,'triangle',.06);tone(f*3.01,dur*.2,0,'sine',.025)}
-const SFX={
-  start(){tone(659.25,.14,0,'triangle',.16);tone(987.77,.22,.12,'triangle',.16)},
-  good(){[523.25,659.25,783.99,1046.5].forEach((f,i)=>tone(f,.28,i*.07,'triangle',.17))},
-  soft(){tone(392,.25,0,'sine',.13);tone(329.63,.4,.16,'sine',.13)},
-  up(){[523.25,659.25,783.99,1046.5,1318.5,1567.98].forEach((f,i)=>tone(f,.3,i*.08,'triangle',.17))},
-  pt(){tone(1318.5,.08,0,'sine',.07);tone(1975.5,.22,.07,'sine',.07)},
-  hit(){tone(880,.12,0,'triangle',.15);tone(1174.66,.2,.08,'triangle',.15)},
-  ring(){[0,.18,.6,.78].forEach(w=>{tone(1320,.14,w,'sine',.08);tone(1660,.14,w,'sine',.05)})},
-  key(d){tone(697+d*20,.1,0,'sine',.09)},
-  bus(){tone(110,.5,0,'sawtooth',.03);tone(147,.4,.05,'triangle',.05)},
-  door(){tone(587.33,.18,0,'sine',.1);tone(440,.25,.18,'sine',.1)},
-  done(){tone(196,.18,0,'triangle',.2);tone(392,.12,.02,'sine',.1)},
-  fanfare(){[[523.25,0],[659.25,.15],[783.99,.3],[1046.5,.45],[783.99,.7],[1046.5,.85]].forEach(([f,w])=>{tone(f,.35,w,'triangle',.18);tone(f/2,.35,w,'sine',.08)})}
-};
-const bgm={timer:null,step:0,
-  start(){if(this.timer)return;const prog=[[261.63,329.63,392],[220,261.63,329.63],[174.61,220,261.63],[196,246.94,293.66]],pat=[0,1,2,1,0,2,1,2];
-    this.timer=setInterval(()=>{if(!settings.bgm||quiet||paused)return;const c=prog[(this.step>>3)%4],i=this.step%8;
-      osc(c[pat[i]]*2,.45,0,'sine',.028);if(i===0)osc(c[0]/2,1.8,0,'triangle',.032);if(i===4)osc(c[2],1,0,'sine',.014);this.step++},340)},
-  stop(){clearInterval(this.timer);this.timer=null}};
-const canVoice=()=>settings.voice&&('speechSynthesis' in window);
-function say(t,rate=.95){if(!canVoice())return false;try{const u=new SpeechSynthesisUtterance(t);u.lang='ja-JP';u.rate=rate;speechSynthesis.cancel();speechSynthesis.speak(u);return true}catch(e){return false}}
-
-/* ---------- Helpers ---------- */
-let session=0,paused=false,pauseAt=0,wake=null,clock=null,S=null,collector=null;
-const raw=ms=>new Promise(r=>setTimeout(r,ms));
-async function wait(ms){let left=ms*SPEED[settings.speed];while(left>0){const c=Math.min(100,left);await raw(c);if(!paused)left-=c}}
-function show(id){$$('.screen').forEach(s=>s.hidden=s.id!==id);window.scrollTo(0,0)}
-function msg(t){$('#msg').textContent=t}
-function scene(cls,html){const s=$('#scene');s.className='scene '+cls;s.innerHTML=html}
-function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.random()*(i+1)|0;[a[i],a[j]]=[a[j],a[i]]}return a}
-const range=n=>[...Array(n).keys()];
-const rnd=(a,b)=>a+(Math.random()*(b-a+1)|0);
-async function keepAwake(){try{if('wakeLock' in navigator)wake=await navigator.wakeLock.request('screen')}catch(e){}}
-function releaseAwake(){try{wake&&wake.release()}catch(e){}wake=null}
-function collect(need){return new Promise(r=>collector={need,arr:[],r})}
-function pushTap(v){if(!collector)return -1;collector.arr.push(v);const n=collector.arr.length;if(n>=collector.need){const c=collector;collector=null;setTimeout(()=>c.r(c.arr),420)}return n}
-
-/* numeric keypad (phone & bus). Resolves with the entered digits on 確定. */
-function keypad(box,maxLen,render,exact){
-  return new Promise(r=>{
-    let v=[];
-    box.classList.remove('off');
-    box.innerHTML=[1,2,3,4,5,6,7,8,9].map(d=>`<button data-d="${d}">${d}</button>`).join('')+'<button class="del">消す</button><button data-d="0">0</button><button class="ok" disabled>確定</button>';
-    const ok=box.querySelector('.ok');
-    const draw=()=>{render(v);ok.disabled=exact?v.length!==maxLen:v.length===0};
-    box.querySelectorAll('[data-d]').forEach(b=>b.onclick=()=>{if(v.length<maxLen){v.push(+b.dataset.d);SFX.key(+b.dataset.d);draw()}});
-    box.querySelector('.del').onclick=()=>{v.pop();draw()};
-    ok.onclick=()=>{if(ok.disabled)return;box.classList.add('off');r(v)};
-    draw();
-  });
-}
-
-function addPts(n){S.pts+=n;$('#pts').textContent=S.pts;const p=document.createElement('span');p.className='plus';p.textContent='+'+n;$('#ptBox').appendChild(p);setTimeout(()=>p.remove(),1000);SFX.pt()}
-async function flash(ok,big,sub,pt,ms){
-  $('#fbBig').textContent=big;$('#fbBig').className='fb-big '+(ok?'ok':'ng');$('#fbSub').textContent=sub||'';$('#fbPt').textContent=pt?`+${pt} pt`:'';
-  $('#fb').hidden=false;await raw(ms);$('#fb').hidden=true;
-}
-function newState(key,min,max){return{key,level:levels[key],start:levels[key],min,max,okRun:0,badRun:0,best:0,res:[]}}
-function step(g,ok){
-  g.res.push(ok);if(ok)g.best=Math.max(g.best,g.level);
-  if(ok){g.okRun++;g.badRun=0;if(g.okRun>=2&&g.level<g.max){g.level++;g.okRun=0;return 1}}
-  else{g.badRun++;g.okRun=0;if(g.badRun>=2&&g.level>g.min){g.level--;g.badRun=0;return -1}}
-  return 0;
-}
-async function spanFeedback(g,ok,unit,okText){
-  const lv=g.level,ch=step(g,ok);levels[g.key]=g.level;save();
-  if(ok){
-    S.combo++;const pts=10*lv+(S.combo>=2?5*(S.combo-1):0);addPts(pts);
-    const combo=S.combo>=2?`${S.combo}問連続正解　`:'';
-    if(ch===1){SFX.up();await flash(true,'レベルアップ',`${combo}次は ${g.level}${unit}`,pts,1500)}
-    else{SFX.good();await flash(true,okText||PRAISE[Math.random()*PRAISE.length|0],combo,pts,1100)}
-  }else{
-    S.combo=0;SFX.soft();
-    await flash(false,'惜しい',ch===-1?`${g.level}${unit}でもう一度`:'次の問題へ',0,1100);
-  }
-}
-const roundOut=(g,game)=>({g:game,k:g.key,s:g.start,e:g.level,b:g.best,c:g.res.filter(Boolean).length,n:g.res.length});
-
-/* ---------- Round: スーパー (verbal/semantic span) ---------- */
-async function roundShop(my){
-  const dir=settings.reverse?'b':'f',g=newState('shop_'+dir,2,8),TR=3,pos=shuffle(range(9));
-  scene('shop',`<div class="memo" id="memo"></div>
-    <div class="shelf off" id="shelf">${pos.map(i=>`<button class="item" data-i="${i}">${itemSVG(i)}<span>${ITEMS[i].n}</span></button>`).join('')}</div>
-    <div class="basket" id="bask"></div>`);
-  const memo=$('#memo');
-  $$('#shelf .item').forEach(b=>b.onclick=()=>{
-    if(!collector)return;const i=+b.dataset.i;b.classList.add('tap');setTimeout(()=>b.classList.remove('tap'),220);tone(ITEMS[i].f,.25,0,'triangle',.14);
-    const n=pushTap(i);const slot=$$('#bask i')[n-1];if(slot)slot.innerHTML=itemSVG(i);
-  });
-  for(let t=0;t<TR;t++){
-    memo.innerHTML='<span class="mh">頼まれた買い物</span><span class="say">メモを読みます</span>';$('#bask').innerHTML='';$('#shelf').classList.add('off');
-    msg(`${g.level}品の買い物です。順番を覚えてください`);
-    await wait(1200);if(my!==session)return;
-    const seq=shuffle(range(9)).slice(0,g.level);quiet=true;
-    for(const i of seq){
-      memo.innerHTML=`<span class="mh">頼まれた買い物</span><div class="one">${itemSVG(i)}<span>${ITEMS[i].n}</span></div>`;
-      if(!say(ITEMS[i].y))bell(ITEMS[i].f);
-      await wait(1200);if(my!==session)return;
-      memo.innerHTML='<span class="mh">頼まれた買い物</span>';await wait(300);if(my!==session)return;
+(() => {
+  const $ = (s) => document.querySelector(s), $$ = (s) => [...document.querySelectorAll(s)];
+  const store = { get(k, d) {
+    try {
+      const v = localStorage.getItem(k);
+      return v ? JSON.parse(v) : d;
+    } catch (e) {
+      return d;
     }
-    quiet=false;memo.innerHTML='<span class="mh">頼まれた買い物</span><span class="say">以上です</span>';
-    msg(dir==='f'?'メモの順に、棚から選んでください':'メモの逆の順に、棚から選んでください');
-    $('#bask').innerHTML='<i></i>'.repeat(g.level);$('#shelf').classList.remove('off');
-    const ans=await collect(g.level);if(my!==session)return;
-    $('#shelf').classList.add('off');
-    const target=dir==='f'?seq:[...seq].reverse(),ok=ans.every((v,i)=>v===target[i]);
-    if(!ok){memo.innerHTML='<span class="mh">正しい順番</span><div class="row">'+target.map(i=>itemSVG(i)).join('')+'</div>';await raw(1900);if(my!==session)return}
-    await spanFeedback(g,ok,'品',ok?'お買い物完了':'');if(my!==session)return;
-  }
-  return roundOut(g,'shop');
-}
-
-/* ---------- Round: 星空 (visuospatial span, Corsi) ---------- */
-async function roundStars(my){
-  const dir=settings.reverse?'b':'f',g=newState('stars_'+dir,2,9),TR=4;
-  const P=range(9).map(i=>({x:18+(i%3)*32+(Math.random()*12-6),y:17+((i/3)|0)*33+(Math.random()*10-5)}));
-  scene('night',`<div class="cname" id="cname"></div><div class="sky off" id="sky"><svg class="lines" viewBox="0 0 100 100" preserveAspectRatio="none" id="lines"></svg>
-    ${P.map((p,i)=>`<button class="star" data-i="${i}" style="left:${p.x}%;top:${p.y}%;--c:${STAR_COL[i]}" aria-label="星${i+1}"><svg viewBox="0 0 100 100"><path d="${STAR_P}"/></svg></button>`).join('')}</div><div class="dots" id="dots"></div>`);
-  const light=(i,ms)=>{const el=$(`#sky .star[data-i="${i}"]`);if(!el)return;el.classList.add('lit');setTimeout(()=>el.classList.remove('lit'),ms)};
-  $$('#sky .star').forEach(b=>b.onclick=()=>{if(!collector)return;const i=+b.dataset.i;light(i,260);bell(STAR_NOTES[i],.5);const n=pushTap(i);const d=$$('#dots i')[n-1];if(d)d.className='f'});
-  const draw=seq=>{$('#lines').innerHTML=`<polyline points="${seq.map(i=>`${P[i].x},${P[i].y}`).join(' ')}" fill="none" stroke="#FFE9A8" stroke-width="2.5" stroke-linejoin="round" vector-effect="non-scaling-stroke" opacity=".9"/>`};
-  for(let t=0;t<TR;t++){
-    $('#lines').innerHTML='';$('#cname').textContent='';$('#dots').innerHTML='';$('#sky').classList.add('off');
-    msg(`${g.level}個の星。光る順番を覚えてください`);
-    await wait(900);if(my!==session)return;
-    const seq=shuffle(range(9)).slice(0,g.level);quiet=true;
-    for(const i of seq){light(i,650*SPEED[settings.speed]);bell(STAR_NOTES[i]);await wait(950);if(my!==session)return}
-    quiet=false;msg(dir==='f'?'同じ順番でタッチしてください':'逆の順番でタッチしてください');
-    $('#dots').innerHTML='<i></i>'.repeat(g.level);$('#sky').classList.remove('off');
-    const ans=await collect(g.level);if(my!==session)return;
-    $('#sky').classList.add('off');
-    const target=dir==='f'?seq:[...seq].reverse(),ok=ans.every((v,i)=>v===target[i]);
-    let name='';
-    if(ok){draw(seq);name=CONST[Math.random()*CONST.length|0];$('#cname').textContent=`星を結びました（${name}）`}
-    else{msg('正しい順番を表示します');for(const i of target){light(i,450);bell(STAR_NOTES[i],.4);await raw(560);if(my!==session)return}}
-    await spanFeedback(g,ok,'個');if(my!==session)return;
-  }
-  return roundOut(g,'stars');
-}
-
-/* ---------- Round: 回転寿司 (n-back) ---------- */
-async function roundSushi(my){
-  const n=levels.sushi,len=12+n,seq=[];
-  for(let i=0;i<len;i++){if(i>=n&&Math.random()<.33)seq.push(seq[i-n]);else{let s;do{s=Math.random()*6|0}while(i>=n&&s===seq[i-n]);seq.push(s)}}
-  const tgt=seq.map((s,i)=>i>=n&&s===seq[i-n]),nT=tgt.filter(Boolean).length;
-  scene('sushi',`<div class="belt"><div class="lane move"></div><div class="plate" id="plate"></div><div class="took">取った皿 <b id="took">0</b></div></div>
-    <p class="hint">${n}皿前と同じ寿司なら「取る」</p><button class="btn take" id="take">取る</button>`);
-  const st={i:-1,resp:false,hits:0,fa:0,cr:0},take=$('#take');
-  take.onclick=()=>{
-    if(st.i<0||st.resp||paused)return;st.resp=true;
-    if(tgt[st.i]){st.hits++;S.combo++;const pts=10*n+(S.combo>=2?5*(S.combo-1):0);addPts(pts);SFX.hit();take.classList.add('hit');take.textContent='正解';$('#took').textContent=st.hits;msg(S.combo>=2?`${S.combo}回連続正解`:'正解です')}
-    else{st.fa++;S.combo=0;SFX.soft();take.classList.add('fa');take.textContent='違う皿でした';msg(`${n}皿前とは違う寿司でした`)}
-  };
-  msg('寿司が流れてきます');await wait(1000);if(my!==session)return;
-  for(let i=0;i<len;i++){
-    st.i=i;st.resp=false;take.className='btn take';take.textContent='取る';
-    const pl=$('#plate');pl.className='plate';pl.innerHTML=sushiSVG(seq[i]);void pl.offsetWidth;pl.classList.add('in');
-    bell(SUSHI[seq[i]].f,.55);msg(`${i+1} / ${len} 皿目`);
-    await wait(1900);if(my!==session)return;
-    pl.classList.add('out');await wait(650);if(my!==session)return;
-    if(!tgt[i]&&!st.resp)st.cr++;
-    if(tgt[i]&&!st.resp)S.combo=0;
-  }
-  const hr=nT?st.hits/nT:1;let next=n,ch=0;
-  if(hr>=.8&&st.fa<=1&&n<4){next=n+1;ch=1}else if((hr<.5||st.fa>=4)&&n>1){next=n-1;ch=-1}
-  levels.sushi=next;save();
-  if(ch===1){SFX.up();await flash(true,'レベルアップ',`次は「${next}皿前」`,0,1500)}
-  else{SFX.good();await flash(true,`${st.hits}／${nT}皿 正解`,ch===-1?`次は「${next}皿前」で練習します`:`誤って取った皿 ${st.fa}`,0,1400)}
-  return {g:'sushi',k:'sushi',s:n,e:next,b:n,c:st.hits,n:nT,fa:st.fa,a:Math.round((st.hits+st.cr)/len*100)};
-}
-
-/* ---------- Round: 電話メモ (auditory digit span with chunking) ---------- */
-const chunks=n=>n<=4?[n]:n<=7?[3,n-3]:[3,4,n-7];
-const fmtNum=(v,n)=>{const out=[];let k=0;chunks(n).forEach((c,gi)=>{if(gi)out.push('-');for(let j=0;j<c;j++,k++)out.push(v[k]!=null?String(v[k]):'<span class="ph">_</span>')});return out.join('')};
-async function roundPhone(my){
-  const dir=settings.reverse?'b':'f',g=newState('phone_'+dir,3,11),TR=4;
-  scene('phone',`<div class="handset"><div class="pscreen"><span class="pstat" id="pstat"></span><div class="wave" id="wave"><i></i><i></i><i></i><i></i><i></i></div><div class="pnum" id="pnum"></div></div><div class="keys off" id="keys"></div></div>`);
-  const stat=$('#pstat'),wave=$('#wave'),num=$('#pnum'),keys=$('#keys');
-  for(let t=0;t<TR;t++){
-    const n=g.level,seq=range(n).map(()=>rnd(0,9)),voice=canVoice();
-    keys.classList.add('off');keys.innerHTML=[1,2,3,4,5,6,7,8,9].map(d=>`<button>${d}</button>`).join('')+'<button class="del">消す</button><button>0</button><button class="ok">確定</button>';
-    num.innerHTML='';stat.textContent='着信中';wave.hidden=false;wave.classList.remove('on');
-    msg(`${n}桁の番号です。聞いて覚えてください`);SFX.ring();
-    await wait(1400);if(my!==session)return;
-    stat.textContent=voice?'番号を読み上げます':'番号を表示します';quiet=true;
-    let k=0;
-    for(const c of chunks(n)){
-      const part=seq.slice(k,k+c);
-      if(voice){wave.classList.add('on');say(part.map(d=>READ[d]).join('、'),.9);await wait(c*620+350);wave.classList.remove('on')}
-      else{for(const d of part){num.textContent=d;await wait(850);num.textContent='';await wait(200);if(my!==session)return}}
-      if(my!==session)return;k+=c;await wait(500);if(my!==session)return;
+  }, set(k, v) {
+    try {
+      localStorage.setItem(k, JSON.stringify(v));
+    } catch (e) {
     }
-    quiet=false;wave.hidden=true;stat.textContent=dir==='f'?'聞いた順に入力':'逆の順に入力';
-    msg(dir==='f'?'聞いた番号を入力してください':'番号を逆の順に入力してください');
-    const ans=await keypad(keys,n,v=>num.innerHTML=fmtNum(v,n),true);if(my!==session)return;
-    const target=dir==='f'?seq:[...seq].reverse(),ok=ans.join('')===target.join('');
-    if(!ok){stat.textContent='正しい番号';num.textContent=fmtNum(target,n).replace(/<[^>]+>/g,'');await raw(1900);if(my!==session)return}
-    await spanFeedback(g,ok,'桁',ok?'メモできました':'');if(my!==session)return;
-  }
-  return roundOut(g,'phone');
-}
-
-/* ---------- Round: バス (updating + mental arithmetic) ---------- */
-async function roundBus(my){
-  const g=newState('bus',2,8),TR=3;
-  scene('bus',`<div class="binfo" id="binfo"></div><div class="busbox" id="busbox">${BUS_SVG}</div><div class="bans" id="bans"></div>`);
-  const info=$('#binfo'),bans=$('#bans');
-  for(let t=0;t<TR;t++){
-    const stops=g.level,names=shuffle([...STOPS]).slice(0,stops);let count=rnd(2,5);const start=count;
-    bans.innerHTML='';
-    info.innerHTML=`<span class="bstop">始発</span><div class="bline">${start}人 乗っています</div><div class="ppl">${range(start).map(()=>person('#4F6B5A')).join('')}</div>`;
-    msg(`停留所は${stops}か所。乗客数を数えてください`);quiet=true;say(`はじめに、${NIN[start]}乗っています`);
-    await wait(2600);if(my!==session)return;
-    for(let s=0;s<stops;s++){
-      let off=rnd(0,Math.min(3,count)),on=rnd(0,3);if(on+off===0)on=1;
-      count=count-off+on;
-      const bb=$('#busbox');bb.style.animation='none';void bb.offsetWidth;bb.style.animation='';SFX.bus();
-      info.innerHTML=`<span class="bstop">${s+1}つ目　${names[s]}</span><div class="bline">${on?`<span class="on">${on}人 乗車</span>`:''}${off?`<span class="offc">${off}人 降車</span>`:''}</div>
-        <div class="ppl">${range(on).map(()=>person('#1E7A48')).join('')}${off?'<span style="width:10px"></span>':''}${range(off).map(()=>person('#C9714F')).join('')}</div>`;
-      await wait(400);if(my!==session)return;SFX.door();
-      say(`${names[s]}。${off?NIN[off]+'おりて、':''}${on?NIN[on]+'のりました':''}`);
-      await wait(2700);if(my!==session)return;
+  }, del(k) {
+    try {
+      localStorage.removeItem(k);
+    } catch (e) {
     }
-    quiet=false;
-    info.innerHTML=`<span class="bstop">終点</span><div class="bline">今、何人乗っていますか？</div>`;
-    msg('乗っている人数を入力してください');
-    bans.innerHTML='<div class="pnum" id="bnum"></div><div class="keys" id="bkeys"></div>';
-    const ans=await keypad($('#bkeys'),2,v=>$('#bnum').textContent=v.length?v.join('')+' 人':'　',false);if(my!==session)return;
-    const ok=+ans.join('')===count;
-    if(!ok){info.innerHTML=`<span class="bstop">答え</span><div class="bline">${count}人 でした</div><div class="ppl">${range(count).map(()=>person('#4F6B5A')).join('')}</div>`;await raw(1900);if(my!==session)return}
-    await spanFeedback(g,ok,'停留所',ok?`${count}人、正解です`:'');if(my!==session)return;
-  }
-  return roundOut(g,'bus');
-}
-
-/* ---------- Round: お薬カレンダー (binding: what × when) ---------- */
-async function roundMed(my){
-  const g=newState('med',2,7),TR=3;
-  scene('med',`<div class="rx" id="rx"></div>
-    <div class="case off" id="case">${SLOTS.map((s,i)=>`<div class="slot" data-s="${i}" role="button" tabindex="0" aria-label="${s.n}の枠"><b>${s.n}</b><div class="pl"></div></div>`).join('')}</div>
-    <div class="tray off" id="tray">${DRUGS.map((d,i)=>`<button class="drug" data-d="${i}">${drugSVG(i)}<span>${d.n}</span></button>`).join('')}</div>
-    <div class="medacts"><span class="medleft" id="medleft"></span><button class="ghost" id="medundo" disabled>1つ戻す</button><button class="ghost" id="medclr" disabled>やり直す</button><button class="btn" id="medok" disabled>確定</button></div>`);
-  const rx=$('#rx'),cs=$('#case');
-  let placed=[],sel=null,need=0,resolve=null;
-  const draw=()=>{
-    $$('#case .slot').forEach(sl=>{const s=+sl.dataset.s;sl.querySelector('.pl').innerHTML=placed.map((p,k)=>p[0]===s?`<button data-k="${k}" aria-label="${DRUGS[p[1]].n}を外す">${drugSVG(p[1])}</button>`:'').join('')});
-    cs.classList.toggle('armed',!!resolve&&sel!==null);
-    $$('#tray .drug').forEach(b=>b.classList.toggle('sel',+b.dataset.d===sel));
-    if(resolve){$('#medleft').textContent=placed.length<need?`あと ${need-placed.length} 件`:'すべて置きました';$('#medok').disabled=placed.length!==need}
-    $('#medundo').disabled=$('#medclr').disabled=!resolve||!placed.length;
-  };
-  $$('#tray .drug').forEach(b=>b.onclick=()=>{if(!resolve)return;sel=+b.dataset.d;tone(660,.08,0,'sine',.08);msg('飲む時間の枠をタッチしてください');draw()});
-  const place=s=>{
-    if(!resolve)return;
-    if(sel===null){msg('先に下の薬を選んでください');return}
-    if(placed.length>=need){msg(`置けるのは ${need} 件です。外すときは置いた薬をタッチ`);return}
-    if(placed.some(p=>p[0]===s&&p[1]===sel)){msg(`${DRUGS[sel].n}は、もう${SLOTS[s].n}に置いてあります`);return}
-    placed.push([s,sel]);tone(523.25+s*60,.15,0,'triangle',.14);
-    msg(placed.length<need?'続けて、薬を選んで枠をタッチ':'置き間違いは、置いた薬をタッチすると取り出せます');draw();
-  };
-  cs.onclick=e=>{
-    if(!resolve)return;
-    const rm=e.target.closest('.pl button');
-    if(rm){e.stopPropagation();const p=placed.splice(+rm.dataset.k,1)[0];if(p){sel=p[1];tone(330,.1,0,'sine',.1);msg(`${DRUGS[p[1]].n}を取り出しました。移す枠をタッチしてください`)}draw();return}
-    const sl=e.target.closest('.slot');if(sl)place(+sl.dataset.s);
-  };
-  $('#medundo').onclick=()=>{if(!resolve||!placed.length)return;const p=placed.pop();tone(330,.1,0,'sine',.1);msg(`${SLOTS[p[0]].n}の${DRUGS[p[1]].n}を戻しました`);draw()};
-  $('#medclr').onclick=()=>{if(!resolve||!placed.length)return;placed=[];sel=null;tone(294,.15,0,'sine',.1);msg('最初から置き直してください');draw()};
-  cs.onkeydown=e=>{const sl=e.target.closest('.slot');if(sl&&(e.key==='Enter'||e.key===' ')){e.preventDefault();place(+sl.dataset.s)}};
-  $('#medok').onclick=()=>{if(resolve&&placed.length===need){const r=resolve;resolve=null;r()}};
-  const all=[];SLOTS.forEach((_,s)=>DRUGS.forEach((_,d)=>all.push([s,d])));
-  for(let t=0;t<TR;t++){
-    need=g.level;placed=[];sel=null;resolve=null;draw();
-    cs.classList.add('off');$('#tray').classList.add('off');$('#medleft').textContent='';$('#medok').disabled=true;
-    rx.innerHTML='<span class="rh">処方の説明</span><span class="say">これから説明します</span>';
-    msg(`${need}件の飲み方です。いつ・どの薬かを覚えてください`);
-    await wait(1300);if(my!==session)return;
-    const ins=shuffle([...all]).slice(0,need);quiet=true;
-    for(const [s,d] of ins){
-      rx.innerHTML=`<span class="rh">処方の説明</span><div class="ins"><span class="when">${SLOTS[s].n}</span>${drugSVG(d)}<span>${DRUGS[d].n}</span></div>`;
-      if(!say(`${SLOTS[s].y}、${DRUGS[d].y}`))bell(523.25+s*60);
-      await wait(2100);if(my!==session)return;
-      rx.innerHTML='<span class="rh">処方の説明</span>';await wait(300);if(my!==session)return;
-    }
-    quiet=false;rx.innerHTML='<span class="rh">処方の説明</span><span class="say">以上です</span>';
-    msg('薬を選んでから、飲む時間の枠をタッチしてください');
-    cs.classList.remove('off');$('#tray').classList.remove('off');
-    await new Promise(r=>{resolve=r;draw()});if(my!==session)return;
-    cs.classList.add('off');$('#tray').classList.add('off');sel=null;
-    const key=p=>p[0]+'-'+p[1],want=new Set(ins.map(key)),ok=placed.length===want.size&&placed.every(p=>want.has(key(p)));
-    if(!ok){placed=ins.map(p=>[...p]);draw();rx.innerHTML='<span class="rh">正しい仕分け</span><span class="say">ケースに表示しています</span>';await raw(2400);if(my!==session)return}
-    await spanFeedback(g,ok,'件',ok?'正しく仕分けできました':'');if(my!==session)return;
-  }
-  return roundOut(g,'med');
-}
-
-/* ================= 追加の6課題 ================= */
-
-/* ---------- 神経衰弱 (visuospatial memory, adaptive pairs) ---------- */
-async function roundCards(my){
-  const g=newState('cards',3,8),TR=2,COLS={3:3,4:4,5:5,6:4,7:5,8:4};
-  scene('cards','<div class="cinfo" id="cinfo"></div><div class="cards off" id="cards"></div>');
-  for(let t=0;t<TR;t++){
-    const n=g.level,faces=shuffle(range(9)).slice(0,n),deck=shuffle([...faces,...faces]),box=$('#cards');
-    box.style.gridTemplateColumns=`repeat(${COLS[n]},1fr)`;box.classList.add('off');box.onclick=null;
-    box.innerHTML=deck.map((f,i)=>`<button class="card up" data-i="${i}" aria-label="カード${i+1}"><span class="face">${itemSVG(f)}</span><span class="back"></span></button>`).join('');
-    $('#cinfo').textContent=`${n}組・ミス${n}回までならクリア`;
-    msg('カードの場所を覚えてください');quiet=true;
-    await wait(1600+n*550);if(my!==session)return;quiet=false;
-    $$('#cards .card').forEach(c=>c.classList.remove('up'));tone(330,.15,0,'sine',.1);
-    msg('同じ絵のカードを2枚ずつめくってください');box.classList.remove('off');
-    const res=await new Promise(r=>{
-      let first=null,lock=false,miss=0,got=0;const lim=n*2+2;
-      box.onclick=e=>{
-        const c=e.target.closest('.card');if(!c||lock||paused||c.classList.contains('up'))return;
-        const i=+c.dataset.i;c.classList.add('up');tone(ITEMS[deck[i]].f,.25,0,'triangle',.12);
-        if(first===null){first=i;return}
-        const a=first;first=null;
-        if(deck[a]===deck[i]){got++;box.children[a].classList.add('got');c.classList.add('got');SFX.hit();if(got===n){lock=true;setTimeout(()=>r({miss}),500)}}
-        else{miss++;lock=true;$('#cinfo').textContent=`${n}組・ミス ${miss}回（${n}回までならクリア）`;
-          setTimeout(()=>{box.children[a].classList.remove('up');c.classList.remove('up');lock=false;if(miss>=lim){lock=true;r({miss,give:true})}},900)}
-      };
+  } };
+  const GAMES = ["shop", "sushi", "stars", "phone", "bus", "med", "cards", "train", "cook", "locker", "wallet", "plan"];
+  const DEF_LV = { shop_f: 2, shop_b: 2, stars_f: 2, stars_b: 2, sushi: 1, phone_f: 4, phone_b: 3, bus: 2, med: 2, cards: 3, train: 1, cook_f: 2, cook_b: 2, locker_f: 4, locker_b: 3, wallet: 2, plan: 2 };
+  const newId = () => "u" + Date.now().toString(36) + (Math.random() * 1e4 | 0);
+  let users = store.get("ot3.users", null), cur = store.get("ot3.current", null);
+  if (!users || !users.length) {
+    const id = newId();
+    users = [{ id, name: "\u5229\u7528\u80051", c: Date.now() }];
+    ["settings", "levels", "history"].forEach((k) => {
+      const v = store.get("ot3." + k, null);
+      if (v) store.set("ot3.".concat(k, ".").concat(id), v);
     });
-    if(my!==session)return;
-    box.onclick=null;box.classList.add('off');
-    if(res.give){$$('#cards .card').forEach(c=>c.classList.add('up'));msg('すべてのカードを表示しています');await raw(1600);if(my!==session)return}
-    const ok=!res.give&&res.miss<=n;
-    await spanFeedback(g,ok,'組',ok?`ミス${res.miss}回でクリア`:'');if(my!==session)return;
+    cur = id;
+    store.set("ot3.users", users);
   }
-  return roundOut(g,'cards');
-}
-
-/* ---------- 駅のホーム (auditory-verbal n-back) ---------- */
-async function roundTrain(my){
-  const n=levels.train,len=12+n,seq=[];
-  for(let i=0;i<len;i++){if(i>=n&&Math.random()<.33)seq.push(seq[i-n]);else{let s;do{s=Math.random()*DESTS.length|0}while(i>=n&&s===seq[i-n]);seq.push(s)}}
-  const tgt=seq.map((s,i)=>i>=n&&s===seq[i-n]),nT=tgt.filter(Boolean).length;
-  scene('station',`<div class="board"><span class="bl">まもなく到着</span><div class="bd" id="bd">　</div></div>
-    <div class="rail"><div class="trainbox" id="trn"></div></div>
-    <p class="hint2">${n}本前と同じ行き先なら「乗る」　<span class="took2">乗れた電車 <b id="took">0</b></span></p>
-    <button class="btn take" id="take">乗る</button>`);
-  const st={i:-1,resp:false,hits:0,fa:0,cr:0},take=$('#take');
-  take.onclick=()=>{
-    if(st.i<0||st.resp||paused)return;st.resp=true;
-    if(tgt[st.i]){st.hits++;S.combo++;const pts=10*n+(S.combo>=2?5*(S.combo-1):0);addPts(pts);SFX.hit();take.classList.add('hit');take.textContent='乗車しました';$('#took').textContent=st.hits;msg(S.combo>=2?`${S.combo}回連続正解`:'正解です')}
-    else{st.fa++;S.combo=0;SFX.soft();take.classList.add('fa');take.textContent='違う電車でした';msg(`${n}本前とは行き先が違いました`)}
+  if (!users.some((u) => u.id === cur)) cur = users[0].id;
+  let settings, levels, history;
+  function loadUser(id) {
+    cur = id;
+    store.set("ot3.current", id);
+    settings = Object.assign({ sound: true, bgm: true, voice: true, speed: "normal", minutes: 7, reverse: false }, store.get("ot3.settings." + id, {}));
+    settings.games = Object.assign(Object.fromEntries(GAMES.map((g) => [g, true])), settings.games || {});
+    levels = Object.assign({}, DEF_LV, store.get("ot3.levels." + id, {}));
+    history = store.get("ot3.history." + id, []);
+  }
+  loadUser(cur);
+  const curName = () => (users.find((u) => u.id === cur) || { name: "" }).name;
+  const save = () => {
+    store.set("ot3.settings." + cur, settings);
+    store.set("ot3.levels." + cur, levels);
+    store.set("ot3.history." + cur, history);
   };
-  msg('電車が到着します');await wait(1000);if(my!==session)return;
-  for(let i=0;i<len;i++){
-    st.i=i;st.resp=false;take.className='btn take';take.textContent='乗る';
-    const d=DESTS[seq[i]],tr=$('#trn');
-    tr.className='trainbox';tr.innerHTML=trainSVG(d.c);void tr.offsetWidth;tr.classList.add('in');
-    $('#bd').innerHTML=`<span class="lc" style="background:${d.c}"></span>${d.n} 行き`;
-    if(!say(d.y+'ゆき'))bell(d.f,.55);
-    msg(`${i+1} / ${len} 本目`);
-    await wait(2000);if(my!==session)return;
-    tr.classList.add('out');$('#bd').textContent='　';await wait(650);if(my!==session)return;
-    if(!tgt[i]&&!st.resp)st.cr++;
-    if(tgt[i]&&!st.resp)S.combo=0;
-  }
-  const hr=nT?st.hits/nT:1;let next=n,ch=0;
-  if(hr>=.8&&st.fa<=1&&n<4){next=n+1;ch=1}else if((hr<.5||st.fa>=4)&&n>1){next=n-1;ch=-1}
-  levels.train=next;save();
-  if(ch===1){SFX.up();await flash(true,'レベルアップ',`次は「${next}本前」`,0,1500)}
-  else{SFX.good();await flash(true,`${st.hits}／${nT}本 正解`,ch===-1?`次は「${next}本前」で練習します`:`誤って乗った電車 ${st.fa}`,0,1400)}
-  return {g:'train',k:'train',s:n,e:next,b:n,c:st.hits,n:nT,fa:st.fa,a:Math.round((st.hits+st.cr)/len*100)};
-}
-
-/* ---------- カレー作り (ordered span, ingredients) ---------- */
-async function roundCook(my){
-  const dir=settings.reverse?'b':'f',g=newState('cook_'+dir,2,8),TR=3,pos=shuffle(range(9));
-  scene('cook',`<div class="potwrap"><div class="drop" id="drop"></div><div class="pot">${ICON.cook}</div></div>
-    <div class="shelf off" id="shelf">${pos.map(i=>`<button class="item" data-i="${i}">${ingSVG(i)}<span>${INGR[i].n}</span></button>`).join('')}</div>
-    <div class="basket" id="bask"></div>`);
-  $$('#shelf .item').forEach(b=>b.onclick=()=>{
-    if(!collector)return;const i=+b.dataset.i;b.classList.add('tap');setTimeout(()=>b.classList.remove('tap'),220);tone(INGR[i].f,.25,0,'triangle',.14);
-    const k=pushTap(i);const slot=$$('#bask i')[k-1];if(slot)slot.innerHTML=ingSVG(i);
+  const SPEED = { slow: 1.5, normal: 1, fast: 0.75 };
+  const STAR_P = "M50 6 L62 37 L95 38 L69 58 L78 91 L50 72 L22 91 L31 58 L5 38 L38 37 Z";
+  const ITEMS = [
+    { n: "\u308A\u3093\u3054", y: "\u308A\u3093\u3054", f: 392, s: '<circle cx="50" cy="57" r="32" fill="#E0413A" stroke="#9E2420" stroke-width="3"/><path d="M50 26 Q52 16 58 11" stroke="#6B4423" stroke-width="5" fill="none" stroke-linecap="round"/><path d="M55 22 Q70 8 80 20 Q66 30 55 22Z" fill="#5BA545"/><ellipse cx="38" cy="46" rx="7" ry="10" fill="#fff" opacity=".35"/>' },
+    { n: "\u30D0\u30CA\u30CA", y: "\u30D0\u30CA\u30CA", f: 440, s: '<path d="M16 28 Q20 80 80 75 Q88 73 85 66 Q40 66 30 24 Q22 18 16 28Z" fill="#F4CF3A" stroke="#B8901A" stroke-width="3"/><path d="M82 72 L90 68" stroke="#5A4A20" stroke-width="5" stroke-linecap="round"/>' },
+    { n: "\u98DF\u30D1\u30F3", y: "\u3057\u3087\u304F\u30D1\u30F3", f: 493.88, s: '<path d="M14 40 Q14 18 34 18 Q42 12 50 18 Q58 12 66 18 Q86 18 86 40 L80 44 L80 86 L20 86 L20 44Z" fill="#E8B76B" stroke="#9C6A2E" stroke-width="3" stroke-linejoin="round"/><path d="M27 44 L27 79 L73 79 L73 44 Q73 28 50 28 Q27 28 27 44Z" fill="#FBEFD6"/>' },
+    { n: "\u9B5A", y: "\u3055\u304B\u306A", f: 523.25, s: '<ellipse cx="44" cy="50" rx="32" ry="18" fill="#4F8FD6" stroke="#2D5E99" stroke-width="3"/><path d="M74 50 L94 33 L94 67Z" fill="#4F8FD6" stroke="#2D5E99" stroke-width="3" stroke-linejoin="round"/><circle cx="28" cy="46" r="4" fill="#12233A"/>' },
+    { n: "\u5375", y: "\u305F\u307E\u3054", f: 587.33, s: '<rect x="10" y="44" width="80" height="34" rx="6" fill="#E9E2D2" stroke="#A8997A" stroke-width="3"/>' + [26, 50, 74].map((x) => '<ellipse cx="'.concat(x, '" cy="44" rx="11" ry="14" fill="#FFF8EC" stroke="#B9A27A" stroke-width="2.5"/>')).join("") },
+    { n: "\u306B\u3093\u3058\u3093", y: "\u306B\u3093\u3058\u3093", f: 659.25, s: '<path d="M50 94 L31 36 Q50 26 69 36Z" fill="#F07C2A" stroke="#B85414" stroke-width="3" stroke-linejoin="round"/><path d="M50 30 L39 9 M50 30 L50 5 M50 30 L61 9" stroke="#4E9B3A" stroke-width="6" stroke-linecap="round"/><path d="M41 52 L49 52 M45 67 L53 67" stroke="#B85414" stroke-width="3" stroke-linecap="round"/>' },
+    { n: "\u725B\u4E73", y: "\u304E\u3085\u3046\u306B\u3085\u3046", f: 698.46, s: '<path d="M29 34 L50 15 L71 34 L71 90 L29 90Z" fill="#fff" stroke="#3C6FB0" stroke-width="3" stroke-linejoin="round"/><rect x="29" y="50" width="42" height="18" fill="#3C6FB0"/><path d="M29 34 L71 34" stroke="#3C6FB0" stroke-width="3"/>' },
+    { n: "\u3076\u3069\u3046", y: "\u3076\u3069\u3046", f: 783.99, s: '<path d="M50 20 Q52 10 60 8" stroke="#6B4423" stroke-width="4" fill="none" stroke-linecap="round"/>' + [[40, 32], [60, 32], [30, 48], [50, 48], [70, 48], [40, 64], [60, 64], [50, 80]].map(([x, y]) => '<circle cx="'.concat(x, '" cy="').concat(y, '" r="11" fill="#7D4BA8" stroke="#4E2A70" stroke-width="2.5"/>')).join("") },
+    { n: "\u30AD\u30E3\u30D9\u30C4", y: "\u30AD\u30E3\u30D9\u30C4", f: 880, s: '<circle cx="50" cy="54" r="35" fill="#A3D06F" stroke="#5E8F35" stroke-width="3"/><path d="M50 20 Q37 54 50 89 M50 20 Q66 48 80 68 M50 20 Q33 46 20 66" stroke="#5E8F35" stroke-width="3" fill="none"/>' }
+  ];
+  const itemSVG = (i) => '<svg viewBox="0 0 100 100" role="img" aria-label="'.concat(ITEMS[i].n, '">').concat(ITEMS[i].s, "</svg>");
+  const RICE = '<rect x="26" y="40" width="68" height="27" rx="13" fill="#FAFAF5" stroke="#CFCBBE" stroke-width="2"/>';
+  const SUSHI = [
+    { n: "\u307E\u3050\u308D", f: 392, s: RICE + '<rect x="18" y="27" width="84" height="24" rx="11" fill="#C9283A"/><path d="M34 31 L42 47 M54 30 L62 48 M74 31 L82 47" stroke="#E2515F" stroke-width="3"/>' },
+    { n: "\u30B5\u30FC\u30E2\u30F3", f: 466.16, s: RICE + '<rect x="18" y="27" width="84" height="24" rx="11" fill="#F0884A"/><path d="M34 30 L42 48 M54 29 L62 49 M74 30 L82 48" stroke="#FFE3D0" stroke-width="3.5"/>' },
+    { n: "\u7389\u5B50", f: 523.25, s: RICE + '<rect x="18" y="24" width="84" height="28" rx="6" fill="#F4CE48"/><rect x="54" y="20" width="13" height="50" fill="#1E2A22"/>' },
+    { n: "\u3048\u3073", f: 622.25, s: RICE + '<path d="M18 40 Q20 26 40 26 L86 28 L104 18 L100 40 L86 46 L40 50 Q20 52 18 40Z" fill="#F7B6A6"/><path d="M36 28 L36 48 M50 27 L50 49 M64 28 L64 48 M78 28 L78 47" stroke="#E8603C" stroke-width="4"/>' },
+    { n: "\u304B\u3063\u3071\u5DFB\u304D", f: 698.46, s: [42, 78].map((x) => '<circle cx="'.concat(x, '" cy="44" r="19" fill="#1E2A22"/><circle cx="').concat(x, '" cy="44" r="14" fill="#FAFAF5"/><circle cx="').concat(x, '" cy="44" r="6" fill="#4FA247"/>')).join("") },
+    { n: "\u3044\u304F\u3089", f: 783.99, s: '<rect x="30" y="34" width="60" height="32" rx="7" fill="#1E2A22"/>' + [38, 48, 58, 68, 78, 43, 53, 63, 73, 83].map((x, i) => '<circle cx="'.concat(x, '" cy="').concat(i < 5 ? 32 : 25, '" r="6" fill="#F26B1D" stroke="#B4400A" stroke-width="1.5"/>')).join("") }
+  ];
+  const sushiSVG = (i) => '<svg viewBox="0 0 120 90" role="img" aria-label="'.concat(SUSHI[i].n, '"><ellipse cx="60" cy="64" rx="56" ry="20" fill="#FFFFFF" stroke="#2F5E9E" stroke-width="4"/><ellipse cx="60" cy="62" rx="40" ry="11" fill="#EEF3FA"/>').concat(SUSHI[i].s, "</svg>");
+  const BUS_SVG = '<svg viewBox="0 0 220 110"><rect x="8" y="12" width="200" height="74" rx="14" fill="#2F8F5B"/><rect x="8" y="56" width="200" height="12" fill="#F2E3B3"/><rect x="20" y="22" width="34" height="26" rx="4" fill="#CFE8F5"/><rect x="60" y="22" width="34" height="26" rx="4" fill="#CFE8F5"/><rect x="100" y="22" width="34" height="26" rx="4" fill="#CFE8F5"/><rect x="140" y="22" width="26" height="54" rx="3" fill="#BFDCEB" stroke="#1F6A43" stroke-width="2"/><rect x="174" y="22" width="26" height="30" rx="4" fill="#CFE8F5"/><circle cx="52" cy="88" r="14" fill="#2A2F33"/><circle cx="52" cy="88" r="6" fill="#9AA3A8"/><circle cx="168" cy="88" r="14" fill="#2A2F33"/><circle cx="168" cy="88" r="6" fill="#9AA3A8"/><rect x="196" y="62" width="10" height="8" rx="2" fill="#FFD966"/></svg>';
+  const person = (c) => '<svg viewBox="0 0 22 30"><circle cx="11" cy="7" r="6" fill="'.concat(c, '"/><path d="M2 30 Q2 15 11 15 Q20 15 20 30Z" fill="').concat(c, '"/></svg>');
+  const ICON = {
+    shop: '<svg viewBox="0 0 100 80"><path d="M10 34 L90 34 L80 74 L20 74Z" fill="#C98A4B" stroke="#7A4E25" stroke-width="3" stroke-linejoin="round"/><path d="M30 34 Q50 4 70 34" fill="none" stroke="#7A4E25" stroke-width="5"/><circle cx="38" cy="30" r="12" fill="#E0413A"/><path d="M52 32 Q56 14 72 22 Q70 34 52 32Z" fill="#F4CF3A"/><path d="M26 48 L74 48 M28 60 L72 60" stroke="#7A4E25" stroke-width="2.5"/></svg>',
+    sushi: '<svg viewBox="0 0 120 90"><ellipse cx="60" cy="64" rx="56" ry="20" fill="#FFFFFF" stroke="#2F5E9E" stroke-width="4"/>' + RICE + '<rect x="18" y="27" width="84" height="24" rx="11" fill="#F0884A"/><path d="M34 30 L42 48 M54 29 L62 49 M74 30 L82 48" stroke="#FFE3D0" stroke-width="3.5"/></svg>',
+    stars: '<svg viewBox="0 0 100 80"><path d="M20 60 L45 30 L75 45 L85 18" stroke="#FFE9A8" stroke-width="2.5" fill="none" stroke-dasharray="4 4"/>' + [[20, 60, 9], [45, 30, 12], [75, 45, 9], [85, 18, 7]].map(([x, y, r]) => '<path transform="translate('.concat(x - r, " ").concat(y - r, ") scale(").concat(r / 50, ')" d="').concat(STAR_P, '" fill="#FFD966"/>')).join("") + "</svg>",
+    phone: '<svg viewBox="0 0 100 80"><rect x="30" y="4" width="40" height="72" rx="8" fill="#1E2733"/><rect x="34" y="12" width="32" height="20" rx="3" fill="#0F151D"/>' + [0, 1, 2].map((r) => [0, 1, 2].map((c) => '<circle cx="'.concat(40 + c * 10, '" cy="').concat(42 + r * 10, '" r="3.5" fill="#9FB3C8"/>')).join("")).join("") + '<path d="M74 18 Q84 28 74 38 M80 12 Q94 28 80 44" stroke="#2C8C58" stroke-width="3.5" fill="none" stroke-linecap="round"/></svg>',
+    bus: BUS_SVG,
+    med: '<svg viewBox="0 0 100 80"><rect x="6" y="20" width="88" height="46" rx="8" fill="#5B7FA6"/>' + [0, 1, 2, 3].map((i) => '<rect x="'.concat(11 + i * 21, '" y="25" width="17" height="36" rx="4" fill="#FFFFFF"/>')).join("") + '<circle cx="19.5" cy="43" r="5" fill="#D9473B"/><circle cx="40.5" cy="43" r="5" fill="#FFFFFF" stroke="#8C99A6" stroke-width="1.5"/><rect x="56" y="38" width="13" height="10" rx="5" fill="#F2C230"/><ellipse cx="82.5" cy="43" rx="6" ry="4" fill="#4A78C9"/></svg>'
+  };
+  const TITLE = { shop: "\u30B9\u30FC\u30D1\u30FC\u3067\u8CB7\u3044\u7269", sushi: "\u56DE\u8EE2\u5BFF\u53F8", stars: "\u661F\u7A7A", phone: "\u96FB\u8A71\u756A\u53F7\u306E\u30E1\u30E2", bus: "\u30D0\u30B9\u306E\u4E57\u5BA2\u6570", med: "\u304A\u85AC\u30AB\u30EC\u30F3\u30C0\u30FC" };
+  const SHORT = { shop: "\u30B9\u30FC\u30D1\u30FC", sushi: "\u56DE\u8EE2\u5BFF\u53F8", stars: "\u661F\u7A7A", phone: "\u96FB\u8A71\u30E1\u30E2", bus: "\u30D0\u30B9", med: "\u304A\u85AC" };
+  const TRAIN = { shop: "\u3053\u3068\u3070\u306E\u8A18\u61B6", sushi: "\u8A18\u61B6\u306E\u66F4\u65B0", stars: "\u4F4D\u7F6E\u306E\u8A18\u61B6", phone: "\u97F3\u306E\u8A18\u61B6", bus: "\u8A18\u61B6\uFF0B\u8A08\u7B97", med: "\u7D44\u307F\u5408\u308F\u305B\u306E\u8A18\u61B6" };
+  const STAR_NOTES = [261.63, 293.66, 329.63, 392, 440, 523.25, 587.33, 659.25, 783.99];
+  const STAR_COL = ["#FF8A7A", "#FFB45C", "#FFE066", "#B6E36A", "#5EE0C8", "#6EC1FF", "#9AA5FF", "#D49BFF", "#FF9AC8"];
+  const CONST = ["\u30AA\u30EA\u30AA\u30F3\u5EA7", "\u30AB\u30B7\u30AA\u30DA\u30E4\u5EA7", "\u306F\u304F\u3061\u3087\u3046\u5EA7", "\u3053\u3068\u5EA7", "\u308F\u3057\u5EA7", "\u30DA\u30AC\u30B9\u30B9\u5EA7", "\u3055\u305D\u308A\u5EA7", "\u3057\u3057\u5EA7", "\u304A\u304A\u3050\u307E\u5EA7", "\u3075\u305F\u3054\u5EA7", "\u304A\u3046\u3057\u5EA7", "\u304E\u3087\u3057\u3083\u5EA7", "\u30A2\u30F3\u30C9\u30ED\u30E1\u30C0\u5EA7", "\u30B1\u30D5\u30A7\u30A6\u30B9\u5EA7", "\u3046\u3057\u304B\u3044\u5EA7"];
+  const PRAISE = ["\u6B63\u89E3\u3067\u3059", "\u304A\u898B\u4E8B\u3067\u3059", "\u305D\u306E\u8ABF\u5B50\u3067\u3059", "\u6B63\u78BA\u3067\u3059"];
+  const READ = ["\u30BC\u30ED", "\u3044\u3061", "\u306B", "\u3055\u3093", "\u3088\u3093", "\u3054", "\u308D\u304F", "\u306A\u306A", "\u306F\u3061", "\u304D\u3085\u3046"];
+  const NIN = ["\u30BC\u30ED\u306B\u3093", "\u3072\u3068\u308A", "\u3075\u305F\u308A", "\u3055\u3093\u306B\u3093", "\u3088\u306B\u3093", "\u3054\u306B\u3093"];
+  const SLOTS = [{ n: "\u671D", y: "\u3042\u3055" }, { n: "\u663C", y: "\u3072\u308B" }, { n: "\u5915", y: "\u3086\u3046" }, { n: "\u5BDD\u308B\u524D", y: "\u306D\u308B\u307E\u3048" }];
+  const capsule = (a, b) => '<rect x="6" y="10" width="48" height="20" rx="10" fill="'.concat(b, '" stroke="#7A8A99" stroke-width="2"/><path d="M16 10 H30 V30 H16 A10 10 0 0 1 16 10Z" fill="').concat(a, '"/>');
+  const DRUGS = [
+    { n: "\u8D64\u3044\u9320\u5264", y: "\u3042\u304B\u3044\u3058\u3087\u3046\u3056\u3044", s: '<circle cx="30" cy="20" r="14" fill="#D9473B" stroke="#9A2A22" stroke-width="2"/>' },
+    { n: "\u767D\u3044\u9320\u5264", y: "\u3057\u308D\u3044\u3058\u3087\u3046\u3056\u3044", s: '<circle cx="30" cy="20" r="14" fill="#FFFFFF" stroke="#8C99A6" stroke-width="2.5"/><path d="M18 20 L42 20" stroke="#B5C0CA" stroke-width="2"/>' },
+    { n: "\u9752\u3044\u9320\u5264", y: "\u3042\u304A\u3044\u3058\u3087\u3046\u3056\u3044", s: '<ellipse cx="30" cy="20" rx="20" ry="12" fill="#4A78C9" stroke="#2B4F8F" stroke-width="2"/>' },
+    { n: "\u9EC4\u8272\u306E\u30AB\u30D7\u30BB\u30EB", y: "\u304D\u3044\u308D\u306E\u30AB\u30D7\u30BB\u30EB", s: capsule("#F2C230", "#FFFFFF") },
+    { n: "\u7DD1\u306E\u30AB\u30D7\u30BB\u30EB", y: "\u307F\u3069\u308A\u306E\u30AB\u30D7\u30BB\u30EB", s: capsule("#3E9B5C", "#FFFFFF") },
+    { n: "\u7C89\u85AC", y: "\u3053\u306A\u3050\u3059\u308A", s: '<rect x="12" y="4" width="36" height="32" rx="3" fill="#E9F1FA" stroke="#7D97B3" stroke-width="2"/><path d="M12 12 L48 12" stroke="#7D97B3" stroke-width="2"/><text x="30" y="31" font-size="14" text-anchor="middle" fill="#4E6A88" font-weight="700">\u6563</text>' }
+  ];
+  const drugSVG = (i) => '<svg viewBox="0 0 60 40" role="img" aria-label="'.concat(DRUGS[i].n, '">').concat(DRUGS[i].s, "</svg>");
+  const DESTS = [{ n: "\u6771\u4EAC", y: "\u3068\u3046\u304D\u3087\u3046", c: "#E07A2E", f: 392 }, { n: "\u5927\u962A", y: "\u304A\u304A\u3055\u304B", c: "#2F6FB8", f: 440 }, { n: "\u540D\u53E4\u5C4B", y: "\u306A\u3054\u3084", c: "#2E9B5C", f: 523.25 }, { n: "\u4EAC\u90FD", y: "\u304D\u3087\u3046\u3068", c: "#8B4DB0", f: 587.33 }, { n: "\u6A2A\u6D5C", y: "\u3088\u3053\u306F\u307E", c: "#D2405A", f: 659.25 }, { n: "\u4ED9\u53F0", y: "\u305B\u3093\u3060\u3044", c: "#B8901A", f: 783.99 }];
+  const trainSVG = (c) => '<svg viewBox="0 0 240 92"><rect x="6" y="8" width="228" height="64" rx="16" fill="#F1F4F7" stroke="#3B4B5A" stroke-width="3"/><rect x="6" y="50" width="228" height="11" fill="'.concat(c, '"/>').concat([0, 1, 2, 3, 4].map((i) => '<rect x="'.concat(20 + i * 42, '" y="18" width="30" height="23" rx="4" fill="#9CC3DE"/>')).join(""), '<circle cx="50" cy="80" r="9" fill="#3B4B5A"/><circle cx="190" cy="80" r="9" fill="#3B4B5A"/></svg>');
+  const INGR = [
+    { n: "\u7389\u306D\u304E", y: "\u305F\u307E\u306D\u304E", f: 392, s: '<path d="M50 14 Q54 24 70 34 Q88 50 78 72 Q68 88 50 88 Q32 88 22 72 Q12 50 30 34 Q46 24 50 14Z" fill="#E9B46A" stroke="#A8732E" stroke-width="3"/><path d="M50 22 Q40 50 44 86 M50 22 Q60 50 56 86" stroke="#A8732E" stroke-width="2.5" fill="none"/>' },
+    { n: "\u3058\u3083\u304C\u3044\u3082", y: "\u3058\u3083\u304C\u3044\u3082", f: 440, s: '<ellipse cx="50" cy="54" rx="36" ry="28" fill="#C9A066" stroke="#8C6A38" stroke-width="3"/><circle cx="36" cy="46" r="3" fill="#8C6A38"/><circle cx="60" cy="62" r="3" fill="#8C6A38"/><circle cx="66" cy="44" r="2.5" fill="#8C6A38"/>' },
+    { n: "\u8089", y: "\u306B\u304F", f: 493.88, s: '<path d="M16 44 Q20 22 50 24 Q84 24 86 48 Q88 74 56 78 Q20 80 16 44Z" fill="#E07B7B" stroke="#A84848" stroke-width="3"/><path d="M28 50 Q50 40 74 52" stroke="#FFF1EC" stroke-width="5" fill="none" stroke-linecap="round"/>' },
+    { n: "\u306B\u3093\u3058\u3093", y: "\u306B\u3093\u3058\u3093", f: 523.25, s: ITEMS[5].s },
+    { n: "\u30C8\u30DE\u30C8", y: "\u30C8\u30DE\u30C8", f: 587.33, s: '<circle cx="50" cy="56" r="32" fill="#E5463A" stroke="#A42A20" stroke-width="3"/><path d="M50 26 L42 18 M50 26 L58 18 M50 26 L36 28 M50 26 L64 28 M50 26 L50 14" stroke="#3E8E3A" stroke-width="5" stroke-linecap="round"/>' },
+    { n: "\u306A\u3059", y: "\u306A\u3059", f: 659.25, s: '<path d="M60 26 Q84 38 78 66 Q72 90 46 86 Q22 82 26 58 Q30 40 48 32Z" fill="#6A3D8C" stroke="#42235C" stroke-width="3"/><path d="M48 32 Q54 18 66 20 Q70 30 60 26Z" fill="#3E8E3A"/>' },
+    { n: "\u304D\u306E\u3053", y: "\u304D\u306E\u3053", f: 698.46, s: '<path d="M16 50 Q16 18 50 18 Q84 18 84 50Z" fill="#B5793E" stroke="#7A4E25" stroke-width="3"/><rect x="40" y="50" width="20" height="34" rx="8" fill="#F3E6D0" stroke="#B9A27A" stroke-width="3"/>' },
+    { n: "\u30D4\u30FC\u30DE\u30F3", y: "\u30D4\u30FC\u30DE\u30F3", f: 783.99, s: '<path d="M30 30 Q50 22 70 30 Q84 50 72 78 Q50 90 28 78 Q16 50 30 30Z" fill="#4E9B3A" stroke="#2F6A22" stroke-width="3"/><path d="M50 24 Q50 12 58 8" stroke="#2F6A22" stroke-width="5" fill="none" stroke-linecap="round"/>' },
+    { n: "\u30AB\u30EC\u30FC\u30EB\u30FC", y: "\u30AB\u30EC\u30FC\u30EB\u30FC", f: 880, s: '<rect x="18" y="28" width="64" height="48" rx="6" fill="#8A5A2B" stroke="#5E3A18" stroke-width="3"/><path d="M39 28 V76 M61 28 V76 M18 52 H82" stroke="#5E3A18" stroke-width="2.5"/>' }
+  ];
+  const ingSVG = (i) => '<svg viewBox="0 0 100 100" role="img" aria-label="'.concat(INGR[i].n, '">').concat(INGR[i].s, "</svg>");
+  const COINS = [{ v: 10, c: "#C77B45", s: "#8C4F25" }, { v: 50, c: "#E3E6E9", s: "#8A9096" }, { v: 100, c: "#D2D6DA", s: "#7A8086" }, { v: 500, c: "#E3C25A", s: "#A8862A" }];
+  const coinSVG = (i) => {
+    const c = COINS[i];
+    return '<svg viewBox="0 0 40 40" role="img" aria-label="'.concat(c.v, '\u5186\u7389"><circle cx="20" cy="20" r="17" fill="').concat(c.c, '" stroke="').concat(c.s, '" stroke-width="2.5"/><text x="20" y="25" font-size="').concat(c.v >= 100 ? 11 : 13, '" text-anchor="middle" font-weight="700" fill="#3B2A1C">').concat(c.v, "</text></svg>");
+  };
+  const DAYS = [{ n: "\u6708", y: "\u3052\u3064\u3088\u3046\u3073" }, { n: "\u706B", y: "\u304B\u3088\u3046\u3073" }, { n: "\u6C34", y: "\u3059\u3044\u3088\u3046\u3073" }, { n: "\u6728", y: "\u3082\u304F\u3088\u3046\u3073" }, { n: "\u91D1", y: "\u304D\u3093\u3088\u3046\u3073" }];
+  const EVENTS = [
+    { n: "\u6B6F\u533B\u8005", y: "\u306F\u3044\u3057\u3083", s: '<path d="M18 6 Q30 2 42 6 Q50 10 46 22 Q42 36 38 34 Q34 28 30 28 Q26 28 22 34 Q18 36 14 22 Q10 10 18 6Z" fill="#FFFFFF" stroke="#4E6A88" stroke-width="2.5"/>' },
+    { n: "\u6563\u6B69", y: "\u3055\u3093\u307D", s: '<path d="M10 12 H26 Q30 22 44 24 Q52 26 52 32 H10Z" fill="#2E9B5C" stroke="#1F6A3E" stroke-width="2"/><path d="M10 32 H52" stroke="#1F6A3E" stroke-width="3"/>' },
+    { n: "\u8CB7\u3044\u7269", y: "\u304B\u3044\u3082\u306E", s: '<rect x="16" y="14" width="28" height="22" rx="3" fill="#E07A2E"/><path d="M23 14 Q23 4 30 4 Q37 4 37 14" stroke="#A8541A" stroke-width="3" fill="none"/>' },
+    { n: "\u901A\u9662", y: "\u3064\u3046\u3044\u3093", s: '<rect x="14" y="5" width="32" height="30" rx="4" fill="#FFFFFF" stroke="#D2405A" stroke-width="2.5"/><path d="M30 11 V29 M21 20 H39" stroke="#D2405A" stroke-width="5"/>' },
+    { n: "\u304A\u8336\u4F1A", y: "\u304A\u3061\u3083\u304B\u3044", s: '<path d="M14 12 H40 V24 Q40 34 27 34 Q14 34 14 24Z" fill="#8B4DB0"/><path d="M40 15 Q50 15 48 22 Q46 27 40 27" stroke="#8B4DB0" stroke-width="3" fill="none"/><path d="M22 3 Q20 7 24 9 M30 2 Q28 6 32 8" stroke="#B9A0C9" stroke-width="2" fill="none"/>' },
+    { n: "\u7F8E\u5BB9\u9662", y: "\u3073\u3088\u3046\u3044\u3093", s: '<circle cx="18" cy="28" r="6" fill="none" stroke="#2F6FB8" stroke-width="3"/><circle cx="34" cy="30" r="6" fill="none" stroke="#2F6FB8" stroke-width="3"/><path d="M22 23 L44 6 M30 25 L48 10" stroke="#2F6FB8" stroke-width="3" stroke-linecap="round"/>' }
+  ];
+  const evSVG = (i) => '<svg viewBox="0 0 60 40" role="img" aria-label="'.concat(EVENTS[i].n, '">').concat(EVENTS[i].s, "</svg>");
+  Object.assign(ICON, {
+    cards: '<svg viewBox="0 0 100 80"><rect x="18" y="12" width="36" height="52" rx="5" fill="#B83B3B" stroke="#FFFFFF" stroke-width="3" transform="rotate(-10 36 38)"/><rect x="46" y="14" width="36" height="52" rx="5" fill="#FFFFFF" stroke="#2F7A55" stroke-width="3" transform="rotate(8 64 40)"/><circle cx="64" cy="40" r="9" fill="#E0413A" transform="rotate(8 64 40)"/></svg>',
+    train: '<svg viewBox="0 0 100 80"><rect x="10" y="12" width="80" height="50" rx="12" fill="#E8EEF3" stroke="#3B4B5A" stroke-width="3"/><rect x="10" y="44" width="80" height="7" fill="#E07A2E"/><rect x="18" y="20" width="20" height="16" rx="3" fill="#9CC3DE"/><rect x="42" y="20" width="20" height="16" rx="3" fill="#9CC3DE"/><rect x="66" y="20" width="16" height="16" rx="3" fill="#9CC3DE"/><path d="M4 72 H96" stroke="#3B4B5A" stroke-width="4"/><circle cx="28" cy="66" r="5" fill="#3B4B5A"/><circle cx="72" cy="66" r="5" fill="#3B4B5A"/></svg>',
+    cook: '<svg viewBox="0 0 100 80"><path d="M14 34 H86 V60 Q86 72 74 72 H26 Q14 72 14 60Z" fill="#4A5560"/><rect x="8" y="30" width="84" height="8" rx="4" fill="#5E6B77"/><path d="M6 42 H14 M86 42 H94" stroke="#4A5560" stroke-width="6" stroke-linecap="round"/><ellipse cx="50" cy="31" rx="34" ry="5" fill="#C98A2E"/><path d="M36 22 Q32 14 38 8 M50 22 Q46 12 52 6 M64 22 Q60 14 66 8" stroke="#B9C3CC" stroke-width="3" fill="none" stroke-linecap="round"/></svg>',
+    locker: '<svg viewBox="0 0 100 80"><rect x="14" y="4" width="72" height="72" rx="4" fill="#8FA3B5"/><rect x="19" y="9" width="29" height="29" rx="2" fill="#C9D5E0"/><rect x="52" y="9" width="29" height="29" rx="2" fill="#C9D5E0"/><rect x="19" y="42" width="29" height="29" rx="2" fill="#C9D5E0"/><rect x="52" y="42" width="29" height="29" rx="2" fill="#F2C230"/><rect x="60" y="52" width="13" height="9" rx="2" fill="#3B2A00"/></svg>',
+    wallet: '<svg viewBox="0 0 100 80"><rect x="10" y="20" width="78" height="50" rx="10" fill="#8C5A3C"/><rect x="58" y="34" width="34" height="22" rx="8" fill="#6E4329"/><circle cx="70" cy="45" r="4" fill="#E8C76A"/><circle cx="30" cy="16" r="11" fill="#E3C25A" stroke="#A8862A" stroke-width="2"/><circle cx="48" cy="12" r="9" fill="#D2D6DA" stroke="#7A8086" stroke-width="2"/></svg>',
+    plan: '<svg viewBox="0 0 100 80"><rect x="14" y="10" width="72" height="64" rx="6" fill="#FFFFFF" stroke="#4E6A88" stroke-width="3"/><rect x="14" y="10" width="72" height="14" rx="6" fill="#D9604C"/><path d="M32 4 V16 M68 4 V16" stroke="#4E6A88" stroke-width="4" stroke-linecap="round"/>' + [0, 1, 2].map((r) => [0, 1, 2, 3].map((c) => '<rect x="'.concat(22 + c * 15, '" y="').concat(32 + r * 13, '" width="9" height="7" rx="1.5" fill="#C9D3DD"/>')).join("")).join("") + '<circle cx="56.5" cy="48.5" r="8" fill="none" stroke="#D9604C" stroke-width="3"/></svg>'
   });
-  const drop=$('#drop');
-  for(let t=0;t<TR;t++){
-    drop.innerHTML='';$('#bask').innerHTML='';$('#shelf').classList.add('off');
-    msg(`${g.level}つの材料。鍋に入れる順番を覚えてください`);
-    await wait(1200);if(my!==session)return;
-    const seq=shuffle(range(9)).slice(0,g.level);quiet=true;
-    for(const i of seq){
-      drop.className='drop';drop.innerHTML=`${ingSVG(i)}<span>${INGR[i].n}</span>`;void drop.offsetWidth;drop.classList.add('fall');
-      if(!say(INGR[i].y))bell(INGR[i].f);
-      await wait(1250);if(my!==session)return;
-      drop.innerHTML='';tone(196,.12,0,'sine',.08);await wait(300);if(my!==session)return;
+  Object.assign(TITLE, { cards: "\u795E\u7D4C\u8870\u5F31", train: "\u99C5\u306E\u30DB\u30FC\u30E0", cook: "\u30AB\u30EC\u30FC\u4F5C\u308A", locker: "\u30B3\u30A4\u30F3\u30ED\u30C3\u30AB\u30FC", wallet: "\u304A\u8CA1\u5E03\u306E\u4E2D\u8EAB", plan: "\u4E88\u5B9A\u306E\u4F1D\u8A00" });
+  Object.assign(SHORT, { cards: "\u795E\u7D4C\u8870\u5F31", train: "\u99C5", cook: "\u30AB\u30EC\u30FC", locker: "\u30ED\u30C3\u30AB\u30FC", wallet: "\u304A\u8CA1\u5E03", plan: "\u4E88\u5B9A" });
+  Object.assign(TRAIN, { cards: "\u4F4D\u7F6E\u306E\u8A18\u61B6", train: "\u8A18\u61B6\u306E\u66F4\u65B0", cook: "\u624B\u9806\u306E\u8A18\u61B6", locker: "\u6570\u5B57\u306E\u8A18\u61B6", wallet: "\u8A18\u61B6\uFF0B\u8A08\u7B97", plan: "\u7D44\u307F\u5408\u308F\u305B\u306E\u8A18\u61B6" });
+  const STOPS = ["\u99C5\u524D", "\u5E02\u5F79\u6240\u524D", "\u4E2D\u592E\u75C5\u9662", "\u56F3\u66F8\u9928\u524D", "\u516C\u5712\u901A\u308A", "\u90F5\u4FBF\u5C40\u524D", "\u5546\u5E97\u8857", "\u4F53\u80B2\u9928\u524D", "\u5E02\u6C11\u4F1A\u9928", "\u5927\u5B66\u524D", "\u4E8C\u4E01\u76EE", "\u56E3\u5730\u5165\u53E3"];
+  let actx = null, quiet = false;
+  function ac() {
+    try {
+      if (!actx) {
+        const C = window.AudioContext || window.webkitAudioContext;
+        if (C) actx = new C();
+      }
+      if (actx && actx.state === "suspended") actx.resume();
+    } catch (e) {
     }
-    quiet=false;drop.className='drop';drop.innerHTML='<span>ぐつぐつ…</span>';
-    msg(dir==='f'?'入れた順に、材料を選んでください':'入れた順の逆に、材料を選んでください');
-    $('#bask').innerHTML='<i></i>'.repeat(g.level);$('#shelf').classList.remove('off');
-    const ans=await collect(g.level);if(my!==session)return;
-    $('#shelf').classList.add('off');
-    const target=dir==='f'?seq:[...seq].reverse(),ok=ans.every((v,i)=>v===target[i]);
-    if(!ok){drop.innerHTML='<span>正しい順番</span><div class="row">'+target.map(i=>ingSVG(i)).join('')+'</div>';await raw(1900);if(my!==session)return}
-    await spanFeedback(g,ok,'品',ok?'おいしくできました':'');if(my!==session)return;
+    return actx;
   }
-  return roundOut(g,'cook');
-}
-
-/* ---------- コインロッカー (visual digit span) ---------- */
-async function roundLocker(my){
-  const dir=settings.reverse?'b':'f',g=newState('locker_'+dir,3,10),TR=4;
-  scene('locker',`<div class="lockerbox"><div class="tag"><span class="tl">ロッカーの暗証番号</span><div class="tn" id="tn"></div></div>
-    <div class="lpanel"><div class="pnum" id="lnum"></div><div class="keys off" id="lkeys"></div></div></div>`);
-  const tn=$('#tn'),num=$('#lnum'),keys=$('#lkeys');
-  for(let t=0;t<TR;t++){
-    const n=g.level,seq=range(n).map(()=>rnd(0,9));
-    keys.classList.add('off');keys.innerHTML=[1,2,3,4,5,6,7,8,9].map(d=>`<button>${d}</button>`).join('')+'<button class="del">消す</button><button>0</button><button class="ok">確定</button>';
-    num.textContent='';tn.textContent='';
-    msg(`${n}桁の番号です。表示される数字を覚えてください`);
-    await wait(1100);if(my!==session)return;quiet=true;
-    for(const d of seq){tn.textContent=d;tn.classList.remove('pop');void tn.offsetWidth;tn.classList.add('pop');tone(740,.08,0,'sine',.08);await wait(950);if(my!==session)return;tn.textContent='';await wait(250);if(my!==session)return}
-    quiet=false;tn.textContent='＊'.repeat(Math.min(n,6));
-    msg(dir==='f'?'見た順に番号を入力してください':'見た順の逆に入力してください');
-    const ans=await keypad(keys,n,v=>num.innerHTML=range(n).map(i=>v[i]!=null?v[i]:'<span class="ph">_</span>').join(' '),true);if(my!==session)return;
-    const target=dir==='f'?seq:[...seq].reverse(),ok=ans.join('')===target.join('');
-    if(!ok){tn.textContent=target.join('');tn.classList.add('small');await raw(1900);tn.classList.remove('small');if(my!==session)return}
-    else{tn.textContent='解錠';SFX.door()}
-    await spanFeedback(g,ok,'桁',ok?'ロッカーが開きました':'');if(my!==session)return;
+  function osc(f, dur, when, type, vol) {
+    const c = ac();
+    if (!c) return;
+    const t = c.currentTime + when, o = c.createOscillator(), g = c.createGain();
+    o.type = type;
+    o.frequency.value = f;
+    g.gain.setValueAtTime(1e-4, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.015);
+    g.gain.exponentialRampToValueAtTime(1e-4, t + dur);
+    o.connect(g);
+    g.connect(c.destination);
+    o.start(t);
+    o.stop(t + dur + 0.05);
   }
-  return roundOut(g,'locker');
-}
-
-/* ---------- お財布 (updating + mental arithmetic with money) ---------- */
-async function roundWallet(my){
-  const g=newState('wallet',2,8),TR=3;
-  scene('wallet',`<div class="binfo" id="winfo"></div><div class="purse" id="purse">${ICON.wallet}</div><div class="bans" id="wans"></div>`);
-  const info=$('#winfo'),ans=$('#wans');
-  for(let t=0;t<TR;t++){
-    const steps=g.level;let total=[0,100,200,500][rnd(0,3)];
-    ans.innerHTML='';
-    info.innerHTML=`<span class="bstop">はじめ</span><div class="bline">${total?`${total}円 入っています`:'お財布は空です'}</div>`;
-    msg(`${steps}回の出し入れ。お財布の金額を計算してください`);quiet=true;say(total?`はじめに、${total}円入っています`:'お財布は、からです');
-    await wait(2500);if(my!==session)return;
-    for(let s=0;s<steps;s++){
-      const ci=rnd(0,3),c=COINS[ci],cnt=rnd(1,3),amt=c.v*cnt,pay=s>0&&total>=amt&&Math.random()<.4;
-      total+=pay?-amt:amt;
-      const pu=$('#purse');pu.style.animation='none';void pu.offsetWidth;pu.style.animation='';
-      info.innerHTML=`<span class="bstop">${s+1}回目</span><div class="bline"><span class="${pay?'offc':'on'}">${c.v}円玉 ×${cnt}　${pay?'使いました':'入れました'}</span></div><div class="coins">${range(cnt).map(()=>coinSVG(ci)).join('')}</div>`;
-      tone(pay?880:1318.5,.1,0,'sine',.08);tone(pay?660:1760,.15,.08,'sine',.08);
-      say(`${c.v}円玉を${cnt}枚、${pay?'使いました':'入れました'}`);
-      await wait(2800);if(my!==session)return;
+  function tone(f, dur = 0.35, when = 0, type = "sine", vol = 0.22) {
+    if (settings.sound) osc(f, dur, when, type, vol);
+  }
+  function bell(f, dur = 0.7) {
+    tone(f, dur, 0, "sine", 0.26);
+    tone(f * 2, dur * 0.45, 0, "triangle", 0.06);
+    tone(f * 3.01, dur * 0.2, 0, "sine", 0.025);
+  }
+  const SFX = {
+    start() {
+      tone(659.25, 0.14, 0, "triangle", 0.16);
+      tone(987.77, 0.22, 0.12, "triangle", 0.16);
+    },
+    good() {
+      [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => tone(f, 0.28, i * 0.07, "triangle", 0.17));
+    },
+    soft() {
+      tone(392, 0.25, 0, "sine", 0.13);
+      tone(329.63, 0.4, 0.16, "sine", 0.13);
+    },
+    up() {
+      [523.25, 659.25, 783.99, 1046.5, 1318.5, 1567.98].forEach((f, i) => tone(f, 0.3, i * 0.08, "triangle", 0.17));
+    },
+    pt() {
+      tone(1318.5, 0.08, 0, "sine", 0.07);
+      tone(1975.5, 0.22, 0.07, "sine", 0.07);
+    },
+    hit() {
+      tone(880, 0.12, 0, "triangle", 0.15);
+      tone(1174.66, 0.2, 0.08, "triangle", 0.15);
+    },
+    ring() {
+      [0, 0.18, 0.6, 0.78].forEach((w) => {
+        tone(1320, 0.14, w, "sine", 0.08);
+        tone(1660, 0.14, w, "sine", 0.05);
+      });
+    },
+    key(d) {
+      tone(697 + d * 20, 0.1, 0, "sine", 0.09);
+    },
+    bus() {
+      tone(110, 0.5, 0, "sawtooth", 0.03);
+      tone(147, 0.4, 0.05, "triangle", 0.05);
+    },
+    door() {
+      tone(587.33, 0.18, 0, "sine", 0.1);
+      tone(440, 0.25, 0.18, "sine", 0.1);
+    },
+    done() {
+      tone(196, 0.18, 0, "triangle", 0.2);
+      tone(392, 0.12, 0.02, "sine", 0.1);
+    },
+    fanfare() {
+      [[523.25, 0], [659.25, 0.15], [783.99, 0.3], [1046.5, 0.45], [783.99, 0.7], [1046.5, 0.85]].forEach(([f, w]) => {
+        tone(f, 0.35, w, "triangle", 0.18);
+        tone(f / 2, 0.35, w, "sine", 0.08);
+      });
     }
-    quiet=false;
-    info.innerHTML='<span class="bstop">最後に</span><div class="bline">今、お財布にいくらありますか？</div>';
-    msg('金額を入力してください');
-    ans.innerHTML='<div class="pnum" id="wnum"></div><div class="keys" id="wkeys"></div>';
-    const v=await keypad($('#wkeys'),5,v=>$('#wnum').textContent=v.length?v.join('')+' 円':'　',false);if(my!==session)return;
-    const ok=+v.join('')===total;
-    if(!ok){info.innerHTML=`<span class="bstop">答え</span><div class="bline">${total}円 でした</div>`;await raw(1900);if(my!==session)return}
-    await spanFeedback(g,ok,'回',ok?`${total}円、正解です`:'');if(my!==session)return;
-  }
-  return roundOut(g,'wallet');
-}
-
-/* ---------- 予定の伝言 (binding: day × event) ---------- */
-async function roundPlan(my){
-  const g=newState('plan',2,7),TR=3;
-  scene('plan',`<div class="rx" id="rx"></div>
-    <div class="case off" id="case" style="grid-template-columns:repeat(5,1fr)">${DAYS.map((s,i)=>`<div class="slot" data-s="${i}" role="button" tabindex="0" aria-label="${s.n}曜日の枠"><b>${s.n}</b><div class="pl"></div></div>`).join('')}</div>
-    <div class="tray off" id="tray">${EVENTS.map((d,i)=>`<button class="drug" data-d="${i}">${evSVG(i)}<span>${d.n}</span></button>`).join('')}</div>
-    <div class="medacts"><span class="medleft" id="medleft"></span><button class="ghost" id="medundo" disabled>1つ戻す</button><button class="ghost" id="medclr" disabled>やり直す</button><button class="btn" id="medok" disabled>確定</button></div>`);
-  const rx=$('#rx'),cs=$('#case');
-  let placed=[],sel=null,need=0,resolve=null;
-  const draw=()=>{
-    $$('#case .slot').forEach(sl=>{const s=+sl.dataset.s;sl.querySelector('.pl').innerHTML=placed.map((p,k)=>p[0]===s?`<button data-k="${k}" aria-label="${EVENTS[p[1]].n}を外す">${evSVG(p[1])}</button>`:'').join('')});
-    cs.classList.toggle('armed',!!resolve&&sel!==null);
-    $$('#tray .drug').forEach(b=>b.classList.toggle('sel',+b.dataset.d===sel));
-    if(resolve){$('#medleft').textContent=placed.length<need?`あと ${need-placed.length} 件`:'すべて書き込みました';$('#medok').disabled=placed.length!==need}
-    $('#medundo').disabled=$('#medclr').disabled=!resolve||!placed.length;
   };
-  $$('#tray .drug').forEach(b=>b.onclick=()=>{if(!resolve)return;sel=+b.dataset.d;tone(660,.08,0,'sine',.08);msg('予定を入れる曜日をタッチしてください');draw()});
-  const place=s=>{
-    if(!resolve)return;
-    if(sel===null){msg('先に下の予定を選んでください');return}
-    if(placed.length>=need){msg(`書き込めるのは ${need} 件です。外すときは書いた予定をタッチ`);return}
-    if(placed.some(p=>p[0]===s&&p[1]===sel)){msg(`${EVENTS[sel].n}は、もう${DAYS[s].n}曜日に入っています`);return}
-    placed.push([s,sel]);tone(523.25+s*50,.15,0,'triangle',.14);
-    msg(placed.length<need?'続けて、予定を選んで曜日をタッチ':'書き間違いは、書いた予定をタッチすると取り出せます');draw();
-  };
-  cs.onclick=e=>{
-    if(!resolve)return;
-    const rm=e.target.closest('.pl button');
-    if(rm){e.stopPropagation();const p=placed.splice(+rm.dataset.k,1)[0];if(p){sel=p[1];tone(330,.1,0,'sine',.1);msg(`${EVENTS[p[1]].n}を取り出しました。移す曜日をタッチしてください`)}draw();return}
-    const sl=e.target.closest('.slot');if(sl)place(+sl.dataset.s);
-  };
-  cs.onkeydown=e=>{const sl=e.target.closest('.slot');if(sl&&(e.key==='Enter'||e.key===' ')){e.preventDefault();place(+sl.dataset.s)}};
-  $('#medundo').onclick=()=>{if(!resolve||!placed.length)return;const p=placed.pop();tone(330,.1,0,'sine',.1);msg(`${DAYS[p[0]].n}曜日の${EVENTS[p[1]].n}を戻しました`);draw()};
-  $('#medclr').onclick=()=>{if(!resolve||!placed.length)return;placed=[];sel=null;tone(294,.15,0,'sine',.1);msg('最初から書き直してください');draw()};
-  $('#medok').onclick=()=>{if(resolve&&placed.length===need){const r=resolve;resolve=null;r()}};
-  const all=[];DAYS.forEach((_,s)=>EVENTS.forEach((_,d)=>all.push([s,d])));
-  for(let t=0;t<TR;t++){
-    need=g.level;placed=[];sel=null;resolve=null;draw();
-    cs.classList.add('off');$('#tray').classList.add('off');$('#medleft').textContent='';$('#medok').disabled=true;
-    rx.innerHTML='<span class="rh">家族からの伝言</span><span class="say">来週の予定を伝えます</span>';
-    msg(`${need}件の予定です。何曜日に何があるかを覚えてください`);
-    await wait(1300);if(my!==session)return;
-    const ins=shuffle([...all]).slice(0,need).sort((a,b)=>a[0]-b[0]);quiet=true;
-    for(const [s,d] of ins){
-      rx.innerHTML=`<span class="rh">家族からの伝言</span><div class="ins"><span class="when">${DAYS[s].n}曜日</span>${evSVG(d)}<span>${EVENTS[d].n}</span></div>`;
-      if(!say(`${DAYS[s].y}、${EVENTS[d].y}`))bell(523.25+s*50);
-      await wait(2100);if(my!==session)return;
-      rx.innerHTML='<span class="rh">家族からの伝言</span>';await wait(300);if(my!==session)return;
+  const bgm = {
+    timer: null,
+    step: 0,
+    start() {
+      if (this.timer) return;
+      const prog = [[261.63, 329.63, 392], [220, 261.63, 329.63], [174.61, 220, 261.63], [196, 246.94, 293.66]], pat = [0, 1, 2, 1, 0, 2, 1, 2];
+      this.timer = setInterval(() => {
+        if (!settings.bgm || quiet || paused) return;
+        const c = prog[(this.step >> 3) % 4], i = this.step % 8;
+        osc(c[pat[i]] * 2, 0.45, 0, "sine", 0.028);
+        if (i === 0) osc(c[0] / 2, 1.8, 0, "triangle", 0.032);
+        if (i === 4) osc(c[2], 1, 0, "sine", 0.014);
+        this.step++;
+      }, 340);
+    },
+    stop() {
+      clearInterval(this.timer);
+      this.timer = null;
     }
-    quiet=false;rx.innerHTML='<span class="rh">家族からの伝言</span><span class="say">以上です</span>';
-    msg('予定を選んでから、曜日の枠をタッチしてください');
-    cs.classList.remove('off');$('#tray').classList.remove('off');
-    await new Promise(r=>{resolve=r;draw()});if(my!==session)return;
-    cs.classList.add('off');$('#tray').classList.add('off');sel=null;
-    const key=p=>p[0]+'-'+p[1],want=new Set(ins.map(key)),ok=placed.length===want.size&&placed.every(p=>want.has(key(p)));
-    if(!ok){placed=ins.map(p=>[...p]);draw();rx.innerHTML='<span class="rh">正しい予定</span><span class="say">カレンダーに表示しています</span>';await raw(2400);if(my!==session)return}
-    await spanFeedback(g,ok,'件',ok?'予定を書き込めました':'');if(my!==session)return;
+  };
+  const canVoice = () => settings.voice && "speechSynthesis" in window;
+  function say(t, rate = 0.95) {
+    if (!canVoice()) return false;
+    try {
+      const u = new SpeechSynthesisUtterance(t);
+      u.lang = "ja-JP";
+      u.rate = rate;
+      speechSynthesis.cancel();
+      speechSynthesis.speak(u);
+      return true;
+    } catch (e) {
+      return false;
+    }
   }
-  return roundOut(g,'plan');
-}
-
-/* ---------- Session flow ---------- */
-const ROUND={shop:roundShop,sushi:roundSushi,stars:roundStars,phone:roundPhone,bus:roundBus,med:roundMed,cards:roundCards,train:roundTrain,cook:roundCook,locker:roundLocker,wallet:roundWallet,plan:roundPlan};
-const accOf=r=>r.a!=null?r.a/100:(r.n?r.c/r.n:0);
-const starsOf=r=>{const a=accOf(r);return a>=.8?3:a>=.6?2:1};
-function roundsHTML(rounds,withNext){
-  return rounds.map(r=>`<span class="rd done" title="${SHORT[r.g]}">${ICON[r.g]}<i>${'★'.repeat(starsOf(r))}</i></span>`).join('')+(withNext?'<span class="rd next"></span>':'');
-}
-const dirKey=g=>g+'_'+(settings.reverse?'b':'f');
-const ORDERED=['shop','stars','phone','cook','locker'];
-const UNIT={shop:'品',sushi:'皿前',stars:'個',phone:'桁',bus:'か所',med:'件',cards:'組',train:'本前',cook:'品',locker:'桁',wallet:'回',plan:'件'};
-const lvKey=g=>ORDERED.includes(g)?dirKey(g):g;
-const lvLabel=g=>levels[lvKey(g)]+UNIT[g];
-function levelText(g){
-  return `現在のレベル：${g==='bus'?'停留所 ':''}${lvLabel(g)}${ORDERED.includes(g)&&settings.reverse?'（逆順）':''}`;
-}
-const RULE={
-  shop:()=>`頼まれた買い物メモを${settings.reverse?'<b>逆の順番</b>':'順番どおり'}に、棚から選びます。`,
-  sushi:()=>`流れてくる寿司が<b>${levels.sushi}皿前</b>と同じなら「取る」を押します。`,
-  stars:()=>`光って鳴った星を${settings.reverse?'<b>逆の順番</b>':'同じ順番'}でタッチします。`,
-  phone:()=>`電話で伝えられた番号を聞いて、${settings.reverse?'<b>逆の順番</b>で':''}入力します。区切りごとに覚えるのがコツです。`,
-  bus:()=>'停留所ごとの乗り降りを頭の中で計算し、最後に乗っている人数を答えます。',
-  med:()=>'処方の説明を聞いて、どの薬をいつ飲むかを覚え、ピルケースに仕分けます。順番は自由です。',
-  cards:()=>'はじめに全部のカードが表に出ます。場所を覚えて、同じ絵のカードを2枚ずつめくります。',
-  train:()=>`到着する電車の行き先が<b>${levels.train}本前</b>と同じなら「乗る」を押します。`,
-  cook:()=>`鍋に入れる材料の順番を覚えて、${settings.reverse?'<b>逆の順番</b>':'同じ順番'}で選びます。`,
-  locker:()=>`画面に1つずつ出る暗証番号を覚えて、${settings.reverse?'<b>逆の順番</b>で':''}入力します。`,
-  wallet:()=>'小銭の出し入れを頭の中で計算し、最後にお財布にある金額を答えます。',
-  plan:()=>'家族からの伝言を聞いて、何曜日に何の予定があるかを覚え、カレンダーに書き込みます。'
-};
-function interstitial(g,first){
-  return new Promise(res=>{
-    msg('');
-    scene('inter',`<div class="inter-in"><div class="ibadge ${g}">${ICON[g]}</div><span class="label">ラウンド ${S.rounds.length+1}　${TRAIN[g]}</span><h2>${TITLE[g]}</h2><p>${RULE[g]()}</p><span class="pill">${levelText(g)}</span><button class="btn big" id="nx">始める</button></div>`);
-    let done=false,tm=null;const go=()=>{if(done||paused)return;done=true;clearTimeout(tm);ac();SFX.start();res()};
-    $('#nx').onclick=go;if(!first)tm=setTimeout(go,7000);
+  let session = 0, paused = false, pauseAt = 0, wake = null, clock = null, S = null, collector = null;
+  const raw = (ms) => new Promise((r) => setTimeout(r, ms));
+  async function wait(ms) {
+    let left = ms * SPEED[settings.speed];
+    while (left > 0) {
+      const c = Math.min(100, left);
+      await raw(c);
+      if (!paused) left -= c;
+    }
+  }
+  function show(id) {
+    $$(".screen").forEach((s) => s.hidden = s.id !== id);
+    window.scrollTo(0, 0);
+  }
+  function msg(t) {
+    $("#msg").textContent = t;
+  }
+  function scene(cls, html) {
+    const s = $("#scene");
+    s.className = "scene " + cls;
+    s.innerHTML = html;
+  }
+  function shuffle(a) {
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.random() * (i + 1) | 0;
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+  const range = (n) => [...Array(n).keys()];
+  const rnd = (a, b) => a + (Math.random() * (b - a + 1) | 0);
+  async function keepAwake() {
+    try {
+      if ("wakeLock" in navigator) wake = await navigator.wakeLock.request("screen");
+    } catch (e) {
+    }
+  }
+  function releaseAwake() {
+    try {
+      wake && wake.release();
+    } catch (e) {
+    }
+    wake = null;
+  }
+  function collect(need) {
+    return new Promise((r) => collector = { need, arr: [], r });
+  }
+  function pushTap(v) {
+    if (!collector) return -1;
+    collector.arr.push(v);
+    const n = collector.arr.length;
+    if (n >= collector.need) {
+      const c = collector;
+      collector = null;
+      setTimeout(() => c.r(c.arr), 420);
+    }
+    return n;
+  }
+  function keypad(box, maxLen, render, exact) {
+    return new Promise((r) => {
+      let v = [];
+      box.classList.remove("off");
+      box.innerHTML = [1, 2, 3, 4, 5, 6, 7, 8, 9].map((d) => '<button data-d="'.concat(d, '">').concat(d, "</button>")).join("") + '<button class="del">\u6D88\u3059</button><button data-d="0">0</button><button class="ok" disabled>\u78BA\u5B9A</button>';
+      const ok = box.querySelector(".ok");
+      const draw = () => {
+        render(v);
+        ok.disabled = exact ? v.length !== maxLen : v.length === 0;
+      };
+      box.querySelectorAll("[data-d]").forEach((b) => b.onclick = () => {
+        if (v.length < maxLen) {
+          v.push(+b.dataset.d);
+          SFX.key(+b.dataset.d);
+          draw();
+        }
+      });
+      box.querySelector(".del").onclick = () => {
+        v.pop();
+        draw();
+      };
+      ok.onclick = () => {
+        if (ok.disabled) return;
+        box.classList.add("off");
+        r(v);
+      };
+      draw();
+    });
+  }
+  function addPts(n) {
+    S.pts += n;
+    $("#pts").textContent = S.pts;
+    const p = document.createElement("span");
+    p.className = "plus";
+    p.textContent = "+" + n;
+    $("#ptBox").appendChild(p);
+    setTimeout(() => p.remove(), 1e3);
+    SFX.pt();
+  }
+  async function flash(ok, big, sub, pt, ms) {
+    $("#fbBig").textContent = big;
+    $("#fbBig").className = "fb-big " + (ok ? "ok" : "ng");
+    $("#fbSub").textContent = sub || "";
+    $("#fbPt").textContent = pt ? "+".concat(pt, " pt") : "";
+    $("#fb").hidden = false;
+    await raw(ms);
+    $("#fb").hidden = true;
+  }
+  function newState(key, min, max) {
+    return { key, level: levels[key], start: levels[key], min, max, okRun: 0, badRun: 0, best: 0, res: [] };
+  }
+  function step(g, ok) {
+    g.res.push(ok);
+    if (ok) g.best = Math.max(g.best, g.level);
+    if (ok) {
+      g.okRun++;
+      g.badRun = 0;
+      if (g.okRun >= 2 && g.level < g.max) {
+        g.level++;
+        g.okRun = 0;
+        return 1;
+      }
+    } else {
+      g.badRun++;
+      g.okRun = 0;
+      if (g.badRun >= 2 && g.level > g.min) {
+        g.level--;
+        g.badRun = 0;
+        return -1;
+      }
+    }
+    return 0;
+  }
+  async function spanFeedback(g, ok, unit, okText) {
+    const lv = g.level, ch = step(g, ok);
+    levels[g.key] = g.level;
+    save();
+    if (ok) {
+      S.combo++;
+      const pts = 10 * lv + (S.combo >= 2 ? 5 * (S.combo - 1) : 0);
+      addPts(pts);
+      const combo = S.combo >= 2 ? "".concat(S.combo, "\u554F\u9023\u7D9A\u6B63\u89E3\u3000") : "";
+      if (ch === 1) {
+        SFX.up();
+        await flash(true, "\u30EC\u30D9\u30EB\u30A2\u30C3\u30D7", "".concat(combo, "\u6B21\u306F ").concat(g.level).concat(unit), pts, 1500);
+      } else {
+        SFX.good();
+        await flash(true, okText || PRAISE[Math.random() * PRAISE.length | 0], combo, pts, 1100);
+      }
+    } else {
+      S.combo = 0;
+      SFX.soft();
+      await flash(false, "\u60DC\u3057\u3044", ch === -1 ? "".concat(g.level).concat(unit, "\u3067\u3082\u3046\u4E00\u5EA6") : "\u6B21\u306E\u554F\u984C\u3078", 0, 1100);
+    }
+  }
+  const roundOut = (g, game) => ({ g: game, k: g.key, s: g.start, e: g.level, b: g.best, c: g.res.filter(Boolean).length, n: g.res.length });
+  async function roundShop(my) {
+    const dir = settings.reverse ? "b" : "f", g = newState("shop_" + dir, 2, 8), TR = 3, pos = shuffle(range(9));
+    scene("shop", '<div class="memo" id="memo"></div>\n    <div class="shelf off" id="shelf">'.concat(pos.map((i) => '<button class="item" data-i="'.concat(i, '">').concat(itemSVG(i), "<span>").concat(ITEMS[i].n, "</span></button>")).join(""), '</div>\n    <div class="basket" id="bask"></div>'));
+    const memo = $("#memo");
+    $$("#shelf .item").forEach((b) => b.onclick = () => {
+      if (!collector) return;
+      const i = +b.dataset.i;
+      b.classList.add("tap");
+      setTimeout(() => b.classList.remove("tap"), 220);
+      tone(ITEMS[i].f, 0.25, 0, "triangle", 0.14);
+      const n = pushTap(i);
+      const slot = $$("#bask i")[n - 1];
+      if (slot) slot.innerHTML = itemSVG(i);
+    });
+    for (let t = 0; t < TR; t++) {
+      memo.innerHTML = '<span class="mh">\u983C\u307E\u308C\u305F\u8CB7\u3044\u7269</span><span class="say">\u30E1\u30E2\u3092\u8AAD\u307F\u307E\u3059</span>';
+      $("#bask").innerHTML = "";
+      $("#shelf").classList.add("off");
+      msg("".concat(g.level, "\u54C1\u306E\u8CB7\u3044\u7269\u3067\u3059\u3002\u9806\u756A\u3092\u899A\u3048\u3066\u304F\u3060\u3055\u3044"));
+      await wait(1200);
+      if (my !== session) return;
+      const seq = shuffle(range(9)).slice(0, g.level);
+      quiet = true;
+      for (const i of seq) {
+        memo.innerHTML = '<span class="mh">\u983C\u307E\u308C\u305F\u8CB7\u3044\u7269</span><div class="one">'.concat(itemSVG(i), "<span>").concat(ITEMS[i].n, "</span></div>");
+        if (!say(ITEMS[i].y)) bell(ITEMS[i].f);
+        await wait(1200);
+        if (my !== session) return;
+        memo.innerHTML = '<span class="mh">\u983C\u307E\u308C\u305F\u8CB7\u3044\u7269</span>';
+        await wait(300);
+        if (my !== session) return;
+      }
+      quiet = false;
+      memo.innerHTML = '<span class="mh">\u983C\u307E\u308C\u305F\u8CB7\u3044\u7269</span><span class="say">\u4EE5\u4E0A\u3067\u3059</span>';
+      msg(dir === "f" ? "\u30E1\u30E2\u306E\u9806\u306B\u3001\u68DA\u304B\u3089\u9078\u3093\u3067\u304F\u3060\u3055\u3044" : "\u30E1\u30E2\u306E\u9006\u306E\u9806\u306B\u3001\u68DA\u304B\u3089\u9078\u3093\u3067\u304F\u3060\u3055\u3044");
+      $("#bask").innerHTML = "<i></i>".repeat(g.level);
+      $("#shelf").classList.remove("off");
+      const ans = await collect(g.level);
+      if (my !== session) return;
+      $("#shelf").classList.add("off");
+      const target = dir === "f" ? seq : [...seq].reverse(), ok = ans.every((v, i) => v === target[i]);
+      if (!ok) {
+        memo.innerHTML = '<span class="mh">\u6B63\u3057\u3044\u9806\u756A</span><div class="row">' + target.map((i) => itemSVG(i)).join("") + "</div>";
+        await raw(1900);
+        if (my !== session) return;
+      }
+      await spanFeedback(g, ok, "\u54C1", ok ? "\u304A\u8CB7\u3044\u7269\u5B8C\u4E86" : "");
+      if (my !== session) return;
+    }
+    return roundOut(g, "shop");
+  }
+  async function roundStars(my) {
+    const dir = settings.reverse ? "b" : "f", g = newState("stars_" + dir, 2, 9), TR = 4;
+    const P = range(9).map((i) => ({ x: 18 + i % 3 * 32 + (Math.random() * 12 - 6), y: 17 + (i / 3 | 0) * 33 + (Math.random() * 10 - 5) }));
+    scene("night", '<div class="cname" id="cname"></div><div class="sky off" id="sky"><svg class="lines" viewBox="0 0 100 100" preserveAspectRatio="none" id="lines"></svg>\n    '.concat(P.map((p, i) => '<button class="star" data-i="'.concat(i, '" style="left:').concat(p.x, "%;top:").concat(p.y, "%;--c:").concat(STAR_COL[i], '" aria-label="\u661F').concat(i + 1, '"><svg viewBox="0 0 100 100"><path d="').concat(STAR_P, '"/></svg></button>')).join(""), '</div><div class="dots" id="dots"></div>'));
+    const light = (i, ms) => {
+      const el = $('#sky .star[data-i="'.concat(i, '"]'));
+      if (!el) return;
+      el.classList.add("lit");
+      setTimeout(() => el.classList.remove("lit"), ms);
+    };
+    $$("#sky .star").forEach((b) => b.onclick = () => {
+      if (!collector) return;
+      const i = +b.dataset.i;
+      light(i, 260);
+      bell(STAR_NOTES[i], 0.5);
+      const n = pushTap(i);
+      const d = $$("#dots i")[n - 1];
+      if (d) d.className = "f";
+    });
+    const draw = (seq) => {
+      $("#lines").innerHTML = '<polyline points="'.concat(seq.map((i) => "".concat(P[i].x, ",").concat(P[i].y)).join(" "), '" fill="none" stroke="#FFE9A8" stroke-width="2.5" stroke-linejoin="round" vector-effect="non-scaling-stroke" opacity=".9"/>');
+    };
+    for (let t = 0; t < TR; t++) {
+      $("#lines").innerHTML = "";
+      $("#cname").textContent = "";
+      $("#dots").innerHTML = "";
+      $("#sky").classList.add("off");
+      msg("".concat(g.level, "\u500B\u306E\u661F\u3002\u5149\u308B\u9806\u756A\u3092\u899A\u3048\u3066\u304F\u3060\u3055\u3044"));
+      await wait(900);
+      if (my !== session) return;
+      const seq = shuffle(range(9)).slice(0, g.level);
+      quiet = true;
+      for (const i of seq) {
+        light(i, 650 * SPEED[settings.speed]);
+        bell(STAR_NOTES[i]);
+        await wait(950);
+        if (my !== session) return;
+      }
+      quiet = false;
+      msg(dir === "f" ? "\u540C\u3058\u9806\u756A\u3067\u30BF\u30C3\u30C1\u3057\u3066\u304F\u3060\u3055\u3044" : "\u9006\u306E\u9806\u756A\u3067\u30BF\u30C3\u30C1\u3057\u3066\u304F\u3060\u3055\u3044");
+      $("#dots").innerHTML = "<i></i>".repeat(g.level);
+      $("#sky").classList.remove("off");
+      const ans = await collect(g.level);
+      if (my !== session) return;
+      $("#sky").classList.add("off");
+      const target = dir === "f" ? seq : [...seq].reverse(), ok = ans.every((v, i) => v === target[i]);
+      let name = "";
+      if (ok) {
+        draw(seq);
+        name = CONST[Math.random() * CONST.length | 0];
+        $("#cname").textContent = "\u661F\u3092\u7D50\u3073\u307E\u3057\u305F\uFF08".concat(name, "\uFF09");
+      } else {
+        msg("\u6B63\u3057\u3044\u9806\u756A\u3092\u8868\u793A\u3057\u307E\u3059");
+        for (const i of target) {
+          light(i, 450);
+          bell(STAR_NOTES[i], 0.4);
+          await raw(560);
+          if (my !== session) return;
+        }
+      }
+      await spanFeedback(g, ok, "\u500B");
+      if (my !== session) return;
+    }
+    return roundOut(g, "stars");
+  }
+  async function roundSushi(my) {
+    const n = levels.sushi, len = 12 + n, seq = [];
+    for (let i = 0; i < len; i++) {
+      if (i >= n && Math.random() < 0.33) seq.push(seq[i - n]);
+      else {
+        let s;
+        do {
+          s = Math.random() * 6 | 0;
+        } while (i >= n && s === seq[i - n]);
+        seq.push(s);
+      }
+    }
+    const tgt = seq.map((s, i) => i >= n && s === seq[i - n]), nT = tgt.filter(Boolean).length;
+    scene("sushi", '<div class="belt"><div class="lane move"></div><div class="plate" id="plate"></div><div class="took">\u53D6\u3063\u305F\u76BF <b id="took">0</b></div></div>\n    <p class="hint">'.concat(n, '\u76BF\u524D\u3068\u540C\u3058\u5BFF\u53F8\u306A\u3089\u300C\u53D6\u308B\u300D</p><button class="btn take" id="take">\u53D6\u308B</button>'));
+    const st = { i: -1, resp: false, hits: 0, fa: 0, cr: 0 }, take = $("#take");
+    take.onclick = () => {
+      if (st.i < 0 || st.resp || paused) return;
+      st.resp = true;
+      if (tgt[st.i]) {
+        st.hits++;
+        S.combo++;
+        const pts = 10 * n + (S.combo >= 2 ? 5 * (S.combo - 1) : 0);
+        addPts(pts);
+        SFX.hit();
+        take.classList.add("hit");
+        take.textContent = "\u6B63\u89E3";
+        $("#took").textContent = st.hits;
+        msg(S.combo >= 2 ? "".concat(S.combo, "\u56DE\u9023\u7D9A\u6B63\u89E3") : "\u6B63\u89E3\u3067\u3059");
+      } else {
+        st.fa++;
+        S.combo = 0;
+        SFX.soft();
+        take.classList.add("fa");
+        take.textContent = "\u9055\u3046\u76BF\u3067\u3057\u305F";
+        msg("".concat(n, "\u76BF\u524D\u3068\u306F\u9055\u3046\u5BFF\u53F8\u3067\u3057\u305F"));
+      }
+    };
+    msg("\u5BFF\u53F8\u304C\u6D41\u308C\u3066\u304D\u307E\u3059");
+    await wait(1e3);
+    if (my !== session) return;
+    for (let i = 0; i < len; i++) {
+      st.i = i;
+      st.resp = false;
+      take.className = "btn take";
+      take.textContent = "\u53D6\u308B";
+      const pl = $("#plate");
+      pl.className = "plate";
+      pl.innerHTML = sushiSVG(seq[i]);
+      void pl.offsetWidth;
+      pl.classList.add("in");
+      bell(SUSHI[seq[i]].f, 0.55);
+      msg("".concat(i + 1, " / ").concat(len, " \u76BF\u76EE"));
+      await wait(1900);
+      if (my !== session) return;
+      pl.classList.add("out");
+      await wait(650);
+      if (my !== session) return;
+      if (!tgt[i] && !st.resp) st.cr++;
+      if (tgt[i] && !st.resp) S.combo = 0;
+    }
+    const hr = nT ? st.hits / nT : 1;
+    let next = n, ch = 0;
+    if (hr >= 0.8 && st.fa <= 1 && n < 4) {
+      next = n + 1;
+      ch = 1;
+    } else if ((hr < 0.5 || st.fa >= 4) && n > 1) {
+      next = n - 1;
+      ch = -1;
+    }
+    levels.sushi = next;
+    save();
+    if (ch === 1) {
+      SFX.up();
+      await flash(true, "\u30EC\u30D9\u30EB\u30A2\u30C3\u30D7", "\u6B21\u306F\u300C".concat(next, "\u76BF\u524D\u300D"), 0, 1500);
+    } else {
+      SFX.good();
+      await flash(true, "".concat(st.hits, "\uFF0F").concat(nT, "\u76BF \u6B63\u89E3"), ch === -1 ? "\u6B21\u306F\u300C".concat(next, "\u76BF\u524D\u300D\u3067\u7DF4\u7FD2\u3057\u307E\u3059") : "\u8AA4\u3063\u3066\u53D6\u3063\u305F\u76BF ".concat(st.fa), 0, 1400);
+    }
+    return { g: "sushi", k: "sushi", s: n, e: next, b: n, c: st.hits, n: nT, fa: st.fa, a: Math.round((st.hits + st.cr) / len * 100) };
+  }
+  const chunks = (n) => n <= 4 ? [n] : n <= 7 ? [3, n - 3] : [3, 4, n - 7];
+  const fmtNum = (v, n) => {
+    const out = [];
+    let k = 0;
+    chunks(n).forEach((c, gi) => {
+      if (gi) out.push("-");
+      for (let j = 0; j < c; j++, k++) out.push(v[k] != null ? String(v[k]) : '<span class="ph">_</span>');
+    });
+    return out.join("");
+  };
+  async function roundPhone(my) {
+    const dir = settings.reverse ? "b" : "f", g = newState("phone_" + dir, 3, 11), TR = 4;
+    scene("phone", '<div class="handset"><div class="pscreen"><span class="pstat" id="pstat"></span><div class="wave" id="wave"><i></i><i></i><i></i><i></i><i></i></div><div class="pnum" id="pnum"></div></div><div class="keys off" id="keys"></div></div>');
+    const stat = $("#pstat"), wave = $("#wave"), num = $("#pnum"), keys = $("#keys");
+    for (let t = 0; t < TR; t++) {
+      const n = g.level, seq = range(n).map(() => rnd(0, 9)), voice = canVoice();
+      keys.classList.add("off");
+      keys.innerHTML = [1, 2, 3, 4, 5, 6, 7, 8, 9].map((d) => "<button>".concat(d, "</button>")).join("") + '<button class="del">\u6D88\u3059</button><button>0</button><button class="ok">\u78BA\u5B9A</button>';
+      num.innerHTML = "";
+      stat.textContent = "\u7740\u4FE1\u4E2D";
+      wave.hidden = false;
+      wave.classList.remove("on");
+      msg("".concat(n, "\u6841\u306E\u756A\u53F7\u3067\u3059\u3002\u805E\u3044\u3066\u899A\u3048\u3066\u304F\u3060\u3055\u3044"));
+      SFX.ring();
+      await wait(1400);
+      if (my !== session) return;
+      stat.textContent = voice ? "\u756A\u53F7\u3092\u8AAD\u307F\u4E0A\u3052\u307E\u3059" : "\u756A\u53F7\u3092\u8868\u793A\u3057\u307E\u3059";
+      quiet = true;
+      let k = 0;
+      for (const c of chunks(n)) {
+        const part = seq.slice(k, k + c);
+        if (voice) {
+          wave.classList.add("on");
+          say(part.map((d) => READ[d]).join("\u3001"), 0.9);
+          await wait(c * 620 + 350);
+          wave.classList.remove("on");
+        } else {
+          for (const d of part) {
+            num.textContent = d;
+            await wait(850);
+            num.textContent = "";
+            await wait(200);
+            if (my !== session) return;
+          }
+        }
+        if (my !== session) return;
+        k += c;
+        await wait(500);
+        if (my !== session) return;
+      }
+      quiet = false;
+      wave.hidden = true;
+      stat.textContent = dir === "f" ? "\u805E\u3044\u305F\u9806\u306B\u5165\u529B" : "\u9006\u306E\u9806\u306B\u5165\u529B";
+      msg(dir === "f" ? "\u805E\u3044\u305F\u756A\u53F7\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044" : "\u756A\u53F7\u3092\u9006\u306E\u9806\u306B\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044");
+      const ans = await keypad(keys, n, (v) => num.innerHTML = fmtNum(v, n), true);
+      if (my !== session) return;
+      const target = dir === "f" ? seq : [...seq].reverse(), ok = ans.join("") === target.join("");
+      if (!ok) {
+        stat.textContent = "\u6B63\u3057\u3044\u756A\u53F7";
+        num.textContent = fmtNum(target, n).replace(/<[^>]+>/g, "");
+        await raw(1900);
+        if (my !== session) return;
+      }
+      await spanFeedback(g, ok, "\u6841", ok ? "\u30E1\u30E2\u3067\u304D\u307E\u3057\u305F" : "");
+      if (my !== session) return;
+    }
+    return roundOut(g, "phone");
+  }
+  async function roundBus(my) {
+    const g = newState("bus", 2, 8), TR = 3;
+    scene("bus", '<div class="binfo" id="binfo"></div><div class="busbox" id="busbox">'.concat(BUS_SVG, '</div><div class="bans" id="bans"></div>'));
+    const info = $("#binfo"), bans = $("#bans");
+    for (let t = 0; t < TR; t++) {
+      const stops = g.level, names = shuffle([...STOPS]).slice(0, stops);
+      let count = rnd(2, 5);
+      const start = count;
+      bans.innerHTML = "";
+      info.innerHTML = '<span class="bstop">\u59CB\u767A</span><div class="bline">'.concat(start, '\u4EBA \u4E57\u3063\u3066\u3044\u307E\u3059</div><div class="ppl">').concat(range(start).map(() => person("#4F6B5A")).join(""), "</div>");
+      msg("\u505C\u7559\u6240\u306F".concat(stops, "\u304B\u6240\u3002\u4E57\u5BA2\u6570\u3092\u6570\u3048\u3066\u304F\u3060\u3055\u3044"));
+      quiet = true;
+      say("\u306F\u3058\u3081\u306B\u3001".concat(NIN[start], "\u4E57\u3063\u3066\u3044\u307E\u3059"));
+      await wait(2600);
+      if (my !== session) return;
+      for (let s = 0; s < stops; s++) {
+        let off = rnd(0, Math.min(3, count)), on = rnd(0, 3);
+        if (on + off === 0) on = 1;
+        count = count - off + on;
+        const bb = $("#busbox");
+        bb.style.animation = "none";
+        void bb.offsetWidth;
+        bb.style.animation = "";
+        SFX.bus();
+        info.innerHTML = '<span class="bstop">'.concat(s + 1, "\u3064\u76EE\u3000").concat(names[s], '</span><div class="bline">').concat(on ? '<span class="on">'.concat(on, "\u4EBA \u4E57\u8ECA</span>") : "").concat(off ? '<span class="offc">'.concat(off, "\u4EBA \u964D\u8ECA</span>") : "", '</div>\n        <div class="ppl">').concat(range(on).map(() => person("#1E7A48")).join("")).concat(off ? '<span style="width:10px"></span>' : "").concat(range(off).map(() => person("#C9714F")).join(""), "</div>");
+        await wait(400);
+        if (my !== session) return;
+        SFX.door();
+        say("".concat(names[s], "\u3002").concat(off ? NIN[off] + "\u304A\u308A\u3066\u3001" : "").concat(on ? NIN[on] + "\u306E\u308A\u307E\u3057\u305F" : ""));
+        await wait(2700);
+        if (my !== session) return;
+      }
+      quiet = false;
+      info.innerHTML = '<span class="bstop">\u7D42\u70B9</span><div class="bline">\u4ECA\u3001\u4F55\u4EBA\u4E57\u3063\u3066\u3044\u307E\u3059\u304B\uFF1F</div>';
+      msg("\u4E57\u3063\u3066\u3044\u308B\u4EBA\u6570\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044");
+      bans.innerHTML = '<div class="pnum" id="bnum"></div><div class="keys" id="bkeys"></div>';
+      const ans = await keypad($("#bkeys"), 2, (v) => $("#bnum").textContent = v.length ? v.join("") + " \u4EBA" : "\u3000", false);
+      if (my !== session) return;
+      const ok = +ans.join("") === count;
+      if (!ok) {
+        info.innerHTML = '<span class="bstop">\u7B54\u3048</span><div class="bline">'.concat(count, '\u4EBA \u3067\u3057\u305F</div><div class="ppl">').concat(range(count).map(() => person("#4F6B5A")).join(""), "</div>");
+        await raw(1900);
+        if (my !== session) return;
+      }
+      await spanFeedback(g, ok, "\u505C\u7559\u6240", ok ? "".concat(count, "\u4EBA\u3001\u6B63\u89E3\u3067\u3059") : "");
+      if (my !== session) return;
+    }
+    return roundOut(g, "bus");
+  }
+  async function roundMed(my) {
+    const g = newState("med", 2, 7), TR = 3;
+    scene("med", '<div class="rx" id="rx"></div>\n    <div class="case off" id="case">'.concat(SLOTS.map((s, i) => '<div class="slot" data-s="'.concat(i, '" role="button" tabindex="0" aria-label="').concat(s.n, '\u306E\u67A0"><b>').concat(s.n, '</b><div class="pl"></div></div>')).join(""), '</div>\n    <div class="tray off" id="tray">').concat(DRUGS.map((d, i) => '<button class="drug" data-d="'.concat(i, '">').concat(drugSVG(i), "<span>").concat(d.n, "</span></button>")).join(""), '</div>\n    <div class="medacts"><span class="medleft" id="medleft"></span><button class="ghost" id="medundo" disabled>1\u3064\u623B\u3059</button><button class="ghost" id="medclr" disabled>\u3084\u308A\u76F4\u3059</button><button class="btn" id="medok" disabled>\u78BA\u5B9A</button></div>'));
+    const rx = $("#rx"), cs = $("#case");
+    let placed = [], sel = null, need = 0, resolve = null;
+    const draw = () => {
+      $$("#case .slot").forEach((sl) => {
+        const s = +sl.dataset.s;
+        sl.querySelector(".pl").innerHTML = placed.map((p, k) => p[0] === s ? '<button data-k="'.concat(k, '" aria-label="').concat(DRUGS[p[1]].n, '\u3092\u5916\u3059">').concat(drugSVG(p[1]), "</button>") : "").join("");
+      });
+      cs.classList.toggle("armed", !!resolve && sel !== null);
+      $$("#tray .drug").forEach((b) => b.classList.toggle("sel", +b.dataset.d === sel));
+      if (resolve) {
+        $("#medleft").textContent = placed.length < need ? "\u3042\u3068 ".concat(need - placed.length, " \u4EF6") : "\u3059\u3079\u3066\u7F6E\u304D\u307E\u3057\u305F";
+        $("#medok").disabled = placed.length !== need;
+      }
+      $("#medundo").disabled = $("#medclr").disabled = !resolve || !placed.length;
+    };
+    $$("#tray .drug").forEach((b) => b.onclick = () => {
+      if (!resolve) return;
+      sel = +b.dataset.d;
+      tone(660, 0.08, 0, "sine", 0.08);
+      msg("\u98F2\u3080\u6642\u9593\u306E\u67A0\u3092\u30BF\u30C3\u30C1\u3057\u3066\u304F\u3060\u3055\u3044");
+      draw();
+    });
+    const place = (s) => {
+      if (!resolve) return;
+      if (sel === null) {
+        msg("\u5148\u306B\u4E0B\u306E\u85AC\u3092\u9078\u3093\u3067\u304F\u3060\u3055\u3044");
+        return;
+      }
+      if (placed.length >= need) {
+        msg("\u7F6E\u3051\u308B\u306E\u306F ".concat(need, " \u4EF6\u3067\u3059\u3002\u5916\u3059\u3068\u304D\u306F\u7F6E\u3044\u305F\u85AC\u3092\u30BF\u30C3\u30C1"));
+        return;
+      }
+      if (placed.some((p) => p[0] === s && p[1] === sel)) {
+        msg("".concat(DRUGS[sel].n, "\u306F\u3001\u3082\u3046").concat(SLOTS[s].n, "\u306B\u7F6E\u3044\u3066\u3042\u308A\u307E\u3059"));
+        return;
+      }
+      placed.push([s, sel]);
+      tone(523.25 + s * 60, 0.15, 0, "triangle", 0.14);
+      msg(placed.length < need ? "\u7D9A\u3051\u3066\u3001\u85AC\u3092\u9078\u3093\u3067\u67A0\u3092\u30BF\u30C3\u30C1" : "\u7F6E\u304D\u9593\u9055\u3044\u306F\u3001\u7F6E\u3044\u305F\u85AC\u3092\u30BF\u30C3\u30C1\u3059\u308B\u3068\u53D6\u308A\u51FA\u305B\u307E\u3059");
+      draw();
+    };
+    cs.onclick = (e) => {
+      if (!resolve) return;
+      const rm = e.target.closest(".pl button");
+      if (rm) {
+        e.stopPropagation();
+        const p = placed.splice(+rm.dataset.k, 1)[0];
+        if (p) {
+          sel = p[1];
+          tone(330, 0.1, 0, "sine", 0.1);
+          msg("".concat(DRUGS[p[1]].n, "\u3092\u53D6\u308A\u51FA\u3057\u307E\u3057\u305F\u3002\u79FB\u3059\u67A0\u3092\u30BF\u30C3\u30C1\u3057\u3066\u304F\u3060\u3055\u3044"));
+        }
+        draw();
+        return;
+      }
+      const sl = e.target.closest(".slot");
+      if (sl) place(+sl.dataset.s);
+    };
+    $("#medundo").onclick = () => {
+      if (!resolve || !placed.length) return;
+      const p = placed.pop();
+      tone(330, 0.1, 0, "sine", 0.1);
+      msg("".concat(SLOTS[p[0]].n, "\u306E").concat(DRUGS[p[1]].n, "\u3092\u623B\u3057\u307E\u3057\u305F"));
+      draw();
+    };
+    $("#medclr").onclick = () => {
+      if (!resolve || !placed.length) return;
+      placed = [];
+      sel = null;
+      tone(294, 0.15, 0, "sine", 0.1);
+      msg("\u6700\u521D\u304B\u3089\u7F6E\u304D\u76F4\u3057\u3066\u304F\u3060\u3055\u3044");
+      draw();
+    };
+    cs.onkeydown = (e) => {
+      const sl = e.target.closest(".slot");
+      if (sl && (e.key === "Enter" || e.key === " ")) {
+        e.preventDefault();
+        place(+sl.dataset.s);
+      }
+    };
+    $("#medok").onclick = () => {
+      if (resolve && placed.length === need) {
+        const r = resolve;
+        resolve = null;
+        r();
+      }
+    };
+    const all = [];
+    SLOTS.forEach((_, s) => DRUGS.forEach((_2, d) => all.push([s, d])));
+    for (let t = 0; t < TR; t++) {
+      need = g.level;
+      placed = [];
+      sel = null;
+      resolve = null;
+      draw();
+      cs.classList.add("off");
+      $("#tray").classList.add("off");
+      $("#medleft").textContent = "";
+      $("#medok").disabled = true;
+      rx.innerHTML = '<span class="rh">\u51E6\u65B9\u306E\u8AAC\u660E</span><span class="say">\u3053\u308C\u304B\u3089\u8AAC\u660E\u3057\u307E\u3059</span>';
+      msg("".concat(need, "\u4EF6\u306E\u98F2\u307F\u65B9\u3067\u3059\u3002\u3044\u3064\u30FB\u3069\u306E\u85AC\u304B\u3092\u899A\u3048\u3066\u304F\u3060\u3055\u3044"));
+      await wait(1300);
+      if (my !== session) return;
+      const ins = shuffle([...all]).slice(0, need);
+      quiet = true;
+      for (const [s, d] of ins) {
+        rx.innerHTML = '<span class="rh">\u51E6\u65B9\u306E\u8AAC\u660E</span><div class="ins"><span class="when">'.concat(SLOTS[s].n, "</span>").concat(drugSVG(d), "<span>").concat(DRUGS[d].n, "</span></div>");
+        if (!say("".concat(SLOTS[s].y, "\u3001").concat(DRUGS[d].y))) bell(523.25 + s * 60);
+        await wait(2100);
+        if (my !== session) return;
+        rx.innerHTML = '<span class="rh">\u51E6\u65B9\u306E\u8AAC\u660E</span>';
+        await wait(300);
+        if (my !== session) return;
+      }
+      quiet = false;
+      rx.innerHTML = '<span class="rh">\u51E6\u65B9\u306E\u8AAC\u660E</span><span class="say">\u4EE5\u4E0A\u3067\u3059</span>';
+      msg("\u85AC\u3092\u9078\u3093\u3067\u304B\u3089\u3001\u98F2\u3080\u6642\u9593\u306E\u67A0\u3092\u30BF\u30C3\u30C1\u3057\u3066\u304F\u3060\u3055\u3044");
+      cs.classList.remove("off");
+      $("#tray").classList.remove("off");
+      await new Promise((r) => {
+        resolve = r;
+        draw();
+      });
+      if (my !== session) return;
+      cs.classList.add("off");
+      $("#tray").classList.add("off");
+      sel = null;
+      const key = (p) => p[0] + "-" + p[1], want = new Set(ins.map(key)), ok = placed.length === want.size && placed.every((p) => want.has(key(p)));
+      if (!ok) {
+        placed = ins.map((p) => [...p]);
+        draw();
+        rx.innerHTML = '<span class="rh">\u6B63\u3057\u3044\u4ED5\u5206\u3051</span><span class="say">\u30B1\u30FC\u30B9\u306B\u8868\u793A\u3057\u3066\u3044\u307E\u3059</span>';
+        await raw(2400);
+        if (my !== session) return;
+      }
+      await spanFeedback(g, ok, "\u4EF6", ok ? "\u6B63\u3057\u304F\u4ED5\u5206\u3051\u3067\u304D\u307E\u3057\u305F" : "");
+      if (my !== session) return;
+    }
+    return roundOut(g, "med");
+  }
+  async function roundCards(my) {
+    const g = newState("cards", 3, 8), TR = 2, COLS = { 3: 3, 4: 4, 5: 5, 6: 4, 7: 5, 8: 4 };
+    scene("cards", '<div class="cinfo" id="cinfo"></div><div class="cards off" id="cards"></div>');
+    for (let t = 0; t < TR; t++) {
+      const n = g.level, faces = shuffle(range(9)).slice(0, n), deck = shuffle([...faces, ...faces]), box = $("#cards");
+      box.style.gridTemplateColumns = "repeat(".concat(COLS[n], ",1fr)");
+      box.classList.add("off");
+      box.onclick = null;
+      box.innerHTML = deck.map((f, i) => '<button class="card up" data-i="'.concat(i, '" aria-label="\u30AB\u30FC\u30C9').concat(i + 1, '"><span class="face">').concat(itemSVG(f), '</span><span class="back"></span></button>')).join("");
+      $("#cinfo").textContent = "".concat(n, "\u7D44\u30FB\u30DF\u30B9").concat(n, "\u56DE\u307E\u3067\u306A\u3089\u30AF\u30EA\u30A2");
+      msg("\u30AB\u30FC\u30C9\u306E\u5834\u6240\u3092\u899A\u3048\u3066\u304F\u3060\u3055\u3044");
+      quiet = true;
+      await wait(1600 + n * 550);
+      if (my !== session) return;
+      quiet = false;
+      $$("#cards .card").forEach((c) => c.classList.remove("up"));
+      tone(330, 0.15, 0, "sine", 0.1);
+      msg("\u540C\u3058\u7D75\u306E\u30AB\u30FC\u30C9\u30922\u679A\u305A\u3064\u3081\u304F\u3063\u3066\u304F\u3060\u3055\u3044");
+      box.classList.remove("off");
+      const res = await new Promise((r) => {
+        let first = null, lock = false, miss = 0, got = 0;
+        const lim = n * 2 + 2;
+        box.onclick = (e) => {
+          const c = e.target.closest(".card");
+          if (!c || lock || paused || c.classList.contains("up")) return;
+          const i = +c.dataset.i;
+          c.classList.add("up");
+          tone(ITEMS[deck[i]].f, 0.25, 0, "triangle", 0.12);
+          if (first === null) {
+            first = i;
+            return;
+          }
+          const a = first;
+          first = null;
+          if (deck[a] === deck[i]) {
+            got++;
+            box.children[a].classList.add("got");
+            c.classList.add("got");
+            SFX.hit();
+            if (got === n) {
+              lock = true;
+              setTimeout(() => r({ miss }), 500);
+            }
+          } else {
+            miss++;
+            lock = true;
+            $("#cinfo").textContent = "".concat(n, "\u7D44\u30FB\u30DF\u30B9 ").concat(miss, "\u56DE\uFF08").concat(n, "\u56DE\u307E\u3067\u306A\u3089\u30AF\u30EA\u30A2\uFF09");
+            setTimeout(() => {
+              box.children[a].classList.remove("up");
+              c.classList.remove("up");
+              lock = false;
+              if (miss >= lim) {
+                lock = true;
+                r({ miss, give: true });
+              }
+            }, 900);
+          }
+        };
+      });
+      if (my !== session) return;
+      box.onclick = null;
+      box.classList.add("off");
+      if (res.give) {
+        $$("#cards .card").forEach((c) => c.classList.add("up"));
+        msg("\u3059\u3079\u3066\u306E\u30AB\u30FC\u30C9\u3092\u8868\u793A\u3057\u3066\u3044\u307E\u3059");
+        await raw(1600);
+        if (my !== session) return;
+      }
+      const ok = !res.give && res.miss <= n;
+      await spanFeedback(g, ok, "\u7D44", ok ? "\u30DF\u30B9".concat(res.miss, "\u56DE\u3067\u30AF\u30EA\u30A2") : "");
+      if (my !== session) return;
+    }
+    return roundOut(g, "cards");
+  }
+  async function roundTrain(my) {
+    const n = levels.train, len = 12 + n, seq = [];
+    for (let i = 0; i < len; i++) {
+      if (i >= n && Math.random() < 0.33) seq.push(seq[i - n]);
+      else {
+        let s;
+        do {
+          s = Math.random() * DESTS.length | 0;
+        } while (i >= n && s === seq[i - n]);
+        seq.push(s);
+      }
+    }
+    const tgt = seq.map((s, i) => i >= n && s === seq[i - n]), nT = tgt.filter(Boolean).length;
+    scene("station", '<div class="board"><span class="bl">\u307E\u3082\u306A\u304F\u5230\u7740</span><div class="bd" id="bd">\u3000</div></div>\n    <div class="rail"><div class="trainbox" id="trn"></div></div>\n    <p class="hint2">'.concat(n, '\u672C\u524D\u3068\u540C\u3058\u884C\u304D\u5148\u306A\u3089\u300C\u4E57\u308B\u300D\u3000<span class="took2">\u4E57\u308C\u305F\u96FB\u8ECA <b id="took">0</b></span></p>\n    <button class="btn take" id="take">\u4E57\u308B</button>'));
+    const st = { i: -1, resp: false, hits: 0, fa: 0, cr: 0 }, take = $("#take");
+    take.onclick = () => {
+      if (st.i < 0 || st.resp || paused) return;
+      st.resp = true;
+      if (tgt[st.i]) {
+        st.hits++;
+        S.combo++;
+        const pts = 10 * n + (S.combo >= 2 ? 5 * (S.combo - 1) : 0);
+        addPts(pts);
+        SFX.hit();
+        take.classList.add("hit");
+        take.textContent = "\u4E57\u8ECA\u3057\u307E\u3057\u305F";
+        $("#took").textContent = st.hits;
+        msg(S.combo >= 2 ? "".concat(S.combo, "\u56DE\u9023\u7D9A\u6B63\u89E3") : "\u6B63\u89E3\u3067\u3059");
+      } else {
+        st.fa++;
+        S.combo = 0;
+        SFX.soft();
+        take.classList.add("fa");
+        take.textContent = "\u9055\u3046\u96FB\u8ECA\u3067\u3057\u305F";
+        msg("".concat(n, "\u672C\u524D\u3068\u306F\u884C\u304D\u5148\u304C\u9055\u3044\u307E\u3057\u305F"));
+      }
+    };
+    msg("\u96FB\u8ECA\u304C\u5230\u7740\u3057\u307E\u3059");
+    await wait(1e3);
+    if (my !== session) return;
+    for (let i = 0; i < len; i++) {
+      st.i = i;
+      st.resp = false;
+      take.className = "btn take";
+      take.textContent = "\u4E57\u308B";
+      const d = DESTS[seq[i]], tr = $("#trn");
+      tr.className = "trainbox";
+      tr.innerHTML = trainSVG(d.c);
+      void tr.offsetWidth;
+      tr.classList.add("in");
+      $("#bd").innerHTML = '<span class="lc" style="background:'.concat(d.c, '"></span>').concat(d.n, " \u884C\u304D");
+      if (!say(d.y + "\u3086\u304D")) bell(d.f, 0.55);
+      msg("".concat(i + 1, " / ").concat(len, " \u672C\u76EE"));
+      await wait(2e3);
+      if (my !== session) return;
+      tr.classList.add("out");
+      $("#bd").textContent = "\u3000";
+      await wait(650);
+      if (my !== session) return;
+      if (!tgt[i] && !st.resp) st.cr++;
+      if (tgt[i] && !st.resp) S.combo = 0;
+    }
+    const hr = nT ? st.hits / nT : 1;
+    let next = n, ch = 0;
+    if (hr >= 0.8 && st.fa <= 1 && n < 4) {
+      next = n + 1;
+      ch = 1;
+    } else if ((hr < 0.5 || st.fa >= 4) && n > 1) {
+      next = n - 1;
+      ch = -1;
+    }
+    levels.train = next;
+    save();
+    if (ch === 1) {
+      SFX.up();
+      await flash(true, "\u30EC\u30D9\u30EB\u30A2\u30C3\u30D7", "\u6B21\u306F\u300C".concat(next, "\u672C\u524D\u300D"), 0, 1500);
+    } else {
+      SFX.good();
+      await flash(true, "".concat(st.hits, "\uFF0F").concat(nT, "\u672C \u6B63\u89E3"), ch === -1 ? "\u6B21\u306F\u300C".concat(next, "\u672C\u524D\u300D\u3067\u7DF4\u7FD2\u3057\u307E\u3059") : "\u8AA4\u3063\u3066\u4E57\u3063\u305F\u96FB\u8ECA ".concat(st.fa), 0, 1400);
+    }
+    return { g: "train", k: "train", s: n, e: next, b: n, c: st.hits, n: nT, fa: st.fa, a: Math.round((st.hits + st.cr) / len * 100) };
+  }
+  async function roundCook(my) {
+    const dir = settings.reverse ? "b" : "f", g = newState("cook_" + dir, 2, 8), TR = 3, pos = shuffle(range(9));
+    scene("cook", '<div class="potwrap"><div class="drop" id="drop"></div><div class="pot">'.concat(ICON.cook, '</div></div>\n    <div class="shelf off" id="shelf">').concat(pos.map((i) => '<button class="item" data-i="'.concat(i, '">').concat(ingSVG(i), "<span>").concat(INGR[i].n, "</span></button>")).join(""), '</div>\n    <div class="basket" id="bask"></div>'));
+    $$("#shelf .item").forEach((b) => b.onclick = () => {
+      if (!collector) return;
+      const i = +b.dataset.i;
+      b.classList.add("tap");
+      setTimeout(() => b.classList.remove("tap"), 220);
+      tone(INGR[i].f, 0.25, 0, "triangle", 0.14);
+      const k = pushTap(i);
+      const slot = $$("#bask i")[k - 1];
+      if (slot) slot.innerHTML = ingSVG(i);
+    });
+    const drop = $("#drop");
+    for (let t = 0; t < TR; t++) {
+      drop.innerHTML = "";
+      $("#bask").innerHTML = "";
+      $("#shelf").classList.add("off");
+      msg("".concat(g.level, "\u3064\u306E\u6750\u6599\u3002\u934B\u306B\u5165\u308C\u308B\u9806\u756A\u3092\u899A\u3048\u3066\u304F\u3060\u3055\u3044"));
+      await wait(1200);
+      if (my !== session) return;
+      const seq = shuffle(range(9)).slice(0, g.level);
+      quiet = true;
+      for (const i of seq) {
+        drop.className = "drop";
+        drop.innerHTML = "".concat(ingSVG(i), "<span>").concat(INGR[i].n, "</span>");
+        void drop.offsetWidth;
+        drop.classList.add("fall");
+        if (!say(INGR[i].y)) bell(INGR[i].f);
+        await wait(1250);
+        if (my !== session) return;
+        drop.innerHTML = "";
+        tone(196, 0.12, 0, "sine", 0.08);
+        await wait(300);
+        if (my !== session) return;
+      }
+      quiet = false;
+      drop.className = "drop";
+      drop.innerHTML = "<span>\u3050\u3064\u3050\u3064\u2026</span>";
+      msg(dir === "f" ? "\u5165\u308C\u305F\u9806\u306B\u3001\u6750\u6599\u3092\u9078\u3093\u3067\u304F\u3060\u3055\u3044" : "\u5165\u308C\u305F\u9806\u306E\u9006\u306B\u3001\u6750\u6599\u3092\u9078\u3093\u3067\u304F\u3060\u3055\u3044");
+      $("#bask").innerHTML = "<i></i>".repeat(g.level);
+      $("#shelf").classList.remove("off");
+      const ans = await collect(g.level);
+      if (my !== session) return;
+      $("#shelf").classList.add("off");
+      const target = dir === "f" ? seq : [...seq].reverse(), ok = ans.every((v, i) => v === target[i]);
+      if (!ok) {
+        drop.innerHTML = '<span>\u6B63\u3057\u3044\u9806\u756A</span><div class="row">' + target.map((i) => ingSVG(i)).join("") + "</div>";
+        await raw(1900);
+        if (my !== session) return;
+      }
+      await spanFeedback(g, ok, "\u54C1", ok ? "\u304A\u3044\u3057\u304F\u3067\u304D\u307E\u3057\u305F" : "");
+      if (my !== session) return;
+    }
+    return roundOut(g, "cook");
+  }
+  async function roundLocker(my) {
+    const dir = settings.reverse ? "b" : "f", g = newState("locker_" + dir, 3, 10), TR = 4;
+    scene("locker", '<div class="lockerbox"><div class="tag"><span class="tl">\u30ED\u30C3\u30AB\u30FC\u306E\u6697\u8A3C\u756A\u53F7</span><div class="tn" id="tn"></div></div>\n    <div class="lpanel"><div class="pnum" id="lnum"></div><div class="keys off" id="lkeys"></div></div></div>');
+    const tn = $("#tn"), num = $("#lnum"), keys = $("#lkeys");
+    for (let t = 0; t < TR; t++) {
+      const n = g.level, seq = range(n).map(() => rnd(0, 9));
+      keys.classList.add("off");
+      keys.innerHTML = [1, 2, 3, 4, 5, 6, 7, 8, 9].map((d) => "<button>".concat(d, "</button>")).join("") + '<button class="del">\u6D88\u3059</button><button>0</button><button class="ok">\u78BA\u5B9A</button>';
+      num.textContent = "";
+      tn.textContent = "";
+      msg("".concat(n, "\u6841\u306E\u756A\u53F7\u3067\u3059\u3002\u8868\u793A\u3055\u308C\u308B\u6570\u5B57\u3092\u899A\u3048\u3066\u304F\u3060\u3055\u3044"));
+      await wait(1100);
+      if (my !== session) return;
+      quiet = true;
+      for (const d of seq) {
+        tn.textContent = d;
+        tn.classList.remove("pop");
+        void tn.offsetWidth;
+        tn.classList.add("pop");
+        tone(740, 0.08, 0, "sine", 0.08);
+        await wait(950);
+        if (my !== session) return;
+        tn.textContent = "";
+        await wait(250);
+        if (my !== session) return;
+      }
+      quiet = false;
+      tn.textContent = "\uFF0A".repeat(Math.min(n, 6));
+      msg(dir === "f" ? "\u898B\u305F\u9806\u306B\u756A\u53F7\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044" : "\u898B\u305F\u9806\u306E\u9006\u306B\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044");
+      const ans = await keypad(keys, n, (v) => num.innerHTML = range(n).map((i) => v[i] != null ? v[i] : '<span class="ph">_</span>').join(" "), true);
+      if (my !== session) return;
+      const target = dir === "f" ? seq : [...seq].reverse(), ok = ans.join("") === target.join("");
+      if (!ok) {
+        tn.textContent = target.join("");
+        tn.classList.add("small");
+        await raw(1900);
+        tn.classList.remove("small");
+        if (my !== session) return;
+      } else {
+        tn.textContent = "\u89E3\u9320";
+        SFX.door();
+      }
+      await spanFeedback(g, ok, "\u6841", ok ? "\u30ED\u30C3\u30AB\u30FC\u304C\u958B\u304D\u307E\u3057\u305F" : "");
+      if (my !== session) return;
+    }
+    return roundOut(g, "locker");
+  }
+  async function roundWallet(my) {
+    const g = newState("wallet", 2, 8), TR = 3;
+    scene("wallet", '<div class="binfo" id="winfo"></div><div class="purse" id="purse">'.concat(ICON.wallet, '</div><div class="bans" id="wans"></div>'));
+    const info = $("#winfo"), ans = $("#wans");
+    for (let t = 0; t < TR; t++) {
+      const steps = g.level;
+      let total = [0, 100, 200, 500][rnd(0, 3)];
+      ans.innerHTML = "";
+      info.innerHTML = '<span class="bstop">\u306F\u3058\u3081</span><div class="bline">'.concat(total ? "".concat(total, "\u5186 \u5165\u3063\u3066\u3044\u307E\u3059") : "\u304A\u8CA1\u5E03\u306F\u7A7A\u3067\u3059", "</div>");
+      msg("".concat(steps, "\u56DE\u306E\u51FA\u3057\u5165\u308C\u3002\u304A\u8CA1\u5E03\u306E\u91D1\u984D\u3092\u8A08\u7B97\u3057\u3066\u304F\u3060\u3055\u3044"));
+      quiet = true;
+      say(total ? "\u306F\u3058\u3081\u306B\u3001".concat(total, "\u5186\u5165\u3063\u3066\u3044\u307E\u3059") : "\u304A\u8CA1\u5E03\u306F\u3001\u304B\u3089\u3067\u3059");
+      await wait(2500);
+      if (my !== session) return;
+      for (let s = 0; s < steps; s++) {
+        const ci = rnd(0, 3), c = COINS[ci], cnt = rnd(1, 3), amt = c.v * cnt, pay = s > 0 && total >= amt && Math.random() < 0.4;
+        total += pay ? -amt : amt;
+        const pu = $("#purse");
+        pu.style.animation = "none";
+        void pu.offsetWidth;
+        pu.style.animation = "";
+        info.innerHTML = '<span class="bstop">'.concat(s + 1, '\u56DE\u76EE</span><div class="bline"><span class="').concat(pay ? "offc" : "on", '">').concat(c.v, "\u5186\u7389 \xD7").concat(cnt, "\u3000").concat(pay ? "\u4F7F\u3044\u307E\u3057\u305F" : "\u5165\u308C\u307E\u3057\u305F", '</span></div><div class="coins">').concat(range(cnt).map(() => coinSVG(ci)).join(""), "</div>");
+        tone(pay ? 880 : 1318.5, 0.1, 0, "sine", 0.08);
+        tone(pay ? 660 : 1760, 0.15, 0.08, "sine", 0.08);
+        say("".concat(c.v, "\u5186\u7389\u3092").concat(cnt, "\u679A\u3001").concat(pay ? "\u4F7F\u3044\u307E\u3057\u305F" : "\u5165\u308C\u307E\u3057\u305F"));
+        await wait(2800);
+        if (my !== session) return;
+      }
+      quiet = false;
+      info.innerHTML = '<span class="bstop">\u6700\u5F8C\u306B</span><div class="bline">\u4ECA\u3001\u304A\u8CA1\u5E03\u306B\u3044\u304F\u3089\u3042\u308A\u307E\u3059\u304B\uFF1F</div>';
+      msg("\u91D1\u984D\u3092\u5165\u529B\u3057\u3066\u304F\u3060\u3055\u3044");
+      ans.innerHTML = '<div class="pnum" id="wnum"></div><div class="keys" id="wkeys"></div>';
+      const v = await keypad($("#wkeys"), 5, (v2) => $("#wnum").textContent = v2.length ? v2.join("") + " \u5186" : "\u3000", false);
+      if (my !== session) return;
+      const ok = +v.join("") === total;
+      if (!ok) {
+        info.innerHTML = '<span class="bstop">\u7B54\u3048</span><div class="bline">'.concat(total, "\u5186 \u3067\u3057\u305F</div>");
+        await raw(1900);
+        if (my !== session) return;
+      }
+      await spanFeedback(g, ok, "\u56DE", ok ? "".concat(total, "\u5186\u3001\u6B63\u89E3\u3067\u3059") : "");
+      if (my !== session) return;
+    }
+    return roundOut(g, "wallet");
+  }
+  async function roundPlan(my) {
+    const g = newState("plan", 2, 7), TR = 3;
+    scene("plan", '<div class="rx" id="rx"></div>\n    <div class="case off" id="case" style="grid-template-columns:repeat(5,1fr)">'.concat(DAYS.map((s, i) => '<div class="slot" data-s="'.concat(i, '" role="button" tabindex="0" aria-label="').concat(s.n, '\u66DC\u65E5\u306E\u67A0"><b>').concat(s.n, '</b><div class="pl"></div></div>')).join(""), '</div>\n    <div class="tray off" id="tray">').concat(EVENTS.map((d, i) => '<button class="drug" data-d="'.concat(i, '">').concat(evSVG(i), "<span>").concat(d.n, "</span></button>")).join(""), '</div>\n    <div class="medacts"><span class="medleft" id="medleft"></span><button class="ghost" id="medundo" disabled>1\u3064\u623B\u3059</button><button class="ghost" id="medclr" disabled>\u3084\u308A\u76F4\u3059</button><button class="btn" id="medok" disabled>\u78BA\u5B9A</button></div>'));
+    const rx = $("#rx"), cs = $("#case");
+    let placed = [], sel = null, need = 0, resolve = null;
+    const draw = () => {
+      $$("#case .slot").forEach((sl) => {
+        const s = +sl.dataset.s;
+        sl.querySelector(".pl").innerHTML = placed.map((p, k) => p[0] === s ? '<button data-k="'.concat(k, '" aria-label="').concat(EVENTS[p[1]].n, '\u3092\u5916\u3059">').concat(evSVG(p[1]), "</button>") : "").join("");
+      });
+      cs.classList.toggle("armed", !!resolve && sel !== null);
+      $$("#tray .drug").forEach((b) => b.classList.toggle("sel", +b.dataset.d === sel));
+      if (resolve) {
+        $("#medleft").textContent = placed.length < need ? "\u3042\u3068 ".concat(need - placed.length, " \u4EF6") : "\u3059\u3079\u3066\u66F8\u304D\u8FBC\u307F\u307E\u3057\u305F";
+        $("#medok").disabled = placed.length !== need;
+      }
+      $("#medundo").disabled = $("#medclr").disabled = !resolve || !placed.length;
+    };
+    $$("#tray .drug").forEach((b) => b.onclick = () => {
+      if (!resolve) return;
+      sel = +b.dataset.d;
+      tone(660, 0.08, 0, "sine", 0.08);
+      msg("\u4E88\u5B9A\u3092\u5165\u308C\u308B\u66DC\u65E5\u3092\u30BF\u30C3\u30C1\u3057\u3066\u304F\u3060\u3055\u3044");
+      draw();
+    });
+    const place = (s) => {
+      if (!resolve) return;
+      if (sel === null) {
+        msg("\u5148\u306B\u4E0B\u306E\u4E88\u5B9A\u3092\u9078\u3093\u3067\u304F\u3060\u3055\u3044");
+        return;
+      }
+      if (placed.length >= need) {
+        msg("\u66F8\u304D\u8FBC\u3081\u308B\u306E\u306F ".concat(need, " \u4EF6\u3067\u3059\u3002\u5916\u3059\u3068\u304D\u306F\u66F8\u3044\u305F\u4E88\u5B9A\u3092\u30BF\u30C3\u30C1"));
+        return;
+      }
+      if (placed.some((p) => p[0] === s && p[1] === sel)) {
+        msg("".concat(EVENTS[sel].n, "\u306F\u3001\u3082\u3046").concat(DAYS[s].n, "\u66DC\u65E5\u306B\u5165\u3063\u3066\u3044\u307E\u3059"));
+        return;
+      }
+      placed.push([s, sel]);
+      tone(523.25 + s * 50, 0.15, 0, "triangle", 0.14);
+      msg(placed.length < need ? "\u7D9A\u3051\u3066\u3001\u4E88\u5B9A\u3092\u9078\u3093\u3067\u66DC\u65E5\u3092\u30BF\u30C3\u30C1" : "\u66F8\u304D\u9593\u9055\u3044\u306F\u3001\u66F8\u3044\u305F\u4E88\u5B9A\u3092\u30BF\u30C3\u30C1\u3059\u308B\u3068\u53D6\u308A\u51FA\u305B\u307E\u3059");
+      draw();
+    };
+    cs.onclick = (e) => {
+      if (!resolve) return;
+      const rm = e.target.closest(".pl button");
+      if (rm) {
+        e.stopPropagation();
+        const p = placed.splice(+rm.dataset.k, 1)[0];
+        if (p) {
+          sel = p[1];
+          tone(330, 0.1, 0, "sine", 0.1);
+          msg("".concat(EVENTS[p[1]].n, "\u3092\u53D6\u308A\u51FA\u3057\u307E\u3057\u305F\u3002\u79FB\u3059\u66DC\u65E5\u3092\u30BF\u30C3\u30C1\u3057\u3066\u304F\u3060\u3055\u3044"));
+        }
+        draw();
+        return;
+      }
+      const sl = e.target.closest(".slot");
+      if (sl) place(+sl.dataset.s);
+    };
+    cs.onkeydown = (e) => {
+      const sl = e.target.closest(".slot");
+      if (sl && (e.key === "Enter" || e.key === " ")) {
+        e.preventDefault();
+        place(+sl.dataset.s);
+      }
+    };
+    $("#medundo").onclick = () => {
+      if (!resolve || !placed.length) return;
+      const p = placed.pop();
+      tone(330, 0.1, 0, "sine", 0.1);
+      msg("".concat(DAYS[p[0]].n, "\u66DC\u65E5\u306E").concat(EVENTS[p[1]].n, "\u3092\u623B\u3057\u307E\u3057\u305F"));
+      draw();
+    };
+    $("#medclr").onclick = () => {
+      if (!resolve || !placed.length) return;
+      placed = [];
+      sel = null;
+      tone(294, 0.15, 0, "sine", 0.1);
+      msg("\u6700\u521D\u304B\u3089\u66F8\u304D\u76F4\u3057\u3066\u304F\u3060\u3055\u3044");
+      draw();
+    };
+    $("#medok").onclick = () => {
+      if (resolve && placed.length === need) {
+        const r = resolve;
+        resolve = null;
+        r();
+      }
+    };
+    const all = [];
+    DAYS.forEach((_, s) => EVENTS.forEach((_2, d) => all.push([s, d])));
+    for (let t = 0; t < TR; t++) {
+      need = g.level;
+      placed = [];
+      sel = null;
+      resolve = null;
+      draw();
+      cs.classList.add("off");
+      $("#tray").classList.add("off");
+      $("#medleft").textContent = "";
+      $("#medok").disabled = true;
+      rx.innerHTML = '<span class="rh">\u5BB6\u65CF\u304B\u3089\u306E\u4F1D\u8A00</span><span class="say">\u6765\u9031\u306E\u4E88\u5B9A\u3092\u4F1D\u3048\u307E\u3059</span>';
+      msg("".concat(need, "\u4EF6\u306E\u4E88\u5B9A\u3067\u3059\u3002\u4F55\u66DC\u65E5\u306B\u4F55\u304C\u3042\u308B\u304B\u3092\u899A\u3048\u3066\u304F\u3060\u3055\u3044"));
+      await wait(1300);
+      if (my !== session) return;
+      const ins = shuffle([...all]).slice(0, need).sort((a, b) => a[0] - b[0]);
+      quiet = true;
+      for (const [s, d] of ins) {
+        rx.innerHTML = '<span class="rh">\u5BB6\u65CF\u304B\u3089\u306E\u4F1D\u8A00</span><div class="ins"><span class="when">'.concat(DAYS[s].n, "\u66DC\u65E5</span>").concat(evSVG(d), "<span>").concat(EVENTS[d].n, "</span></div>");
+        if (!say("".concat(DAYS[s].y, "\u3001").concat(EVENTS[d].y))) bell(523.25 + s * 50);
+        await wait(2100);
+        if (my !== session) return;
+        rx.innerHTML = '<span class="rh">\u5BB6\u65CF\u304B\u3089\u306E\u4F1D\u8A00</span>';
+        await wait(300);
+        if (my !== session) return;
+      }
+      quiet = false;
+      rx.innerHTML = '<span class="rh">\u5BB6\u65CF\u304B\u3089\u306E\u4F1D\u8A00</span><span class="say">\u4EE5\u4E0A\u3067\u3059</span>';
+      msg("\u4E88\u5B9A\u3092\u9078\u3093\u3067\u304B\u3089\u3001\u66DC\u65E5\u306E\u67A0\u3092\u30BF\u30C3\u30C1\u3057\u3066\u304F\u3060\u3055\u3044");
+      cs.classList.remove("off");
+      $("#tray").classList.remove("off");
+      await new Promise((r) => {
+        resolve = r;
+        draw();
+      });
+      if (my !== session) return;
+      cs.classList.add("off");
+      $("#tray").classList.add("off");
+      sel = null;
+      const key = (p) => p[0] + "-" + p[1], want = new Set(ins.map(key)), ok = placed.length === want.size && placed.every((p) => want.has(key(p)));
+      if (!ok) {
+        placed = ins.map((p) => [...p]);
+        draw();
+        rx.innerHTML = '<span class="rh">\u6B63\u3057\u3044\u4E88\u5B9A</span><span class="say">\u30AB\u30EC\u30F3\u30C0\u30FC\u306B\u8868\u793A\u3057\u3066\u3044\u307E\u3059</span>';
+        await raw(2400);
+        if (my !== session) return;
+      }
+      await spanFeedback(g, ok, "\u4EF6", ok ? "\u4E88\u5B9A\u3092\u66F8\u304D\u8FBC\u3081\u307E\u3057\u305F" : "");
+      if (my !== session) return;
+    }
+    return roundOut(g, "plan");
+  }
+  const ROUND = { shop: roundShop, sushi: roundSushi, stars: roundStars, phone: roundPhone, bus: roundBus, med: roundMed, cards: roundCards, train: roundTrain, cook: roundCook, locker: roundLocker, wallet: roundWallet, plan: roundPlan };
+  const accOf = (r) => r.a != null ? r.a / 100 : r.n ? r.c / r.n : 0;
+  const starsOf = (r) => {
+    const a = accOf(r);
+    return a >= 0.8 ? 3 : a >= 0.6 ? 2 : 1;
+  };
+  function roundsHTML(rounds, withNext) {
+    return rounds.map((r) => '<span class="rd done" title="'.concat(SHORT[r.g], '">').concat(ICON[r.g], "<i>").concat("\u2605".repeat(starsOf(r)), "</i></span>")).join("") + (withNext ? '<span class="rd next"></span>' : "");
+  }
+  const dirKey = (g) => g + "_" + (settings.reverse ? "b" : "f");
+  const ORDERED = ["shop", "stars", "phone", "cook", "locker"];
+  const UNIT = { shop: "\u54C1", sushi: "\u76BF\u524D", stars: "\u500B", phone: "\u6841", bus: "\u304B\u6240", med: "\u4EF6", cards: "\u7D44", train: "\u672C\u524D", cook: "\u54C1", locker: "\u6841", wallet: "\u56DE", plan: "\u4EF6" };
+  const lvKey = (g) => ORDERED.includes(g) ? dirKey(g) : g;
+  const lvLabel = (g) => levels[lvKey(g)] + UNIT[g];
+  function levelText(g) {
+    return "\u73FE\u5728\u306E\u30EC\u30D9\u30EB\uFF1A".concat(g === "bus" ? "\u505C\u7559\u6240 " : "").concat(lvLabel(g)).concat(ORDERED.includes(g) && settings.reverse ? "\uFF08\u9006\u9806\uFF09" : "");
+  }
+  const RULE = {
+    shop: () => "\u983C\u307E\u308C\u305F\u8CB7\u3044\u7269\u30E1\u30E2\u3092".concat(settings.reverse ? "<b>\u9006\u306E\u9806\u756A</b>" : "\u9806\u756A\u3069\u304A\u308A", "\u306B\u3001\u68DA\u304B\u3089\u9078\u3073\u307E\u3059\u3002"),
+    sushi: () => "\u6D41\u308C\u3066\u304F\u308B\u5BFF\u53F8\u304C<b>".concat(levels.sushi, "\u76BF\u524D</b>\u3068\u540C\u3058\u306A\u3089\u300C\u53D6\u308B\u300D\u3092\u62BC\u3057\u307E\u3059\u3002"),
+    stars: () => "\u5149\u3063\u3066\u9CF4\u3063\u305F\u661F\u3092".concat(settings.reverse ? "<b>\u9006\u306E\u9806\u756A</b>" : "\u540C\u3058\u9806\u756A", "\u3067\u30BF\u30C3\u30C1\u3057\u307E\u3059\u3002"),
+    phone: () => "\u96FB\u8A71\u3067\u4F1D\u3048\u3089\u308C\u305F\u756A\u53F7\u3092\u805E\u3044\u3066\u3001".concat(settings.reverse ? "<b>\u9006\u306E\u9806\u756A</b>\u3067" : "", "\u5165\u529B\u3057\u307E\u3059\u3002\u533A\u5207\u308A\u3054\u3068\u306B\u899A\u3048\u308B\u306E\u304C\u30B3\u30C4\u3067\u3059\u3002"),
+    bus: () => "\u505C\u7559\u6240\u3054\u3068\u306E\u4E57\u308A\u964D\u308A\u3092\u982D\u306E\u4E2D\u3067\u8A08\u7B97\u3057\u3001\u6700\u5F8C\u306B\u4E57\u3063\u3066\u3044\u308B\u4EBA\u6570\u3092\u7B54\u3048\u307E\u3059\u3002",
+    med: () => "\u51E6\u65B9\u306E\u8AAC\u660E\u3092\u805E\u3044\u3066\u3001\u3069\u306E\u85AC\u3092\u3044\u3064\u98F2\u3080\u304B\u3092\u899A\u3048\u3001\u30D4\u30EB\u30B1\u30FC\u30B9\u306B\u4ED5\u5206\u3051\u307E\u3059\u3002\u9806\u756A\u306F\u81EA\u7531\u3067\u3059\u3002",
+    cards: () => "\u306F\u3058\u3081\u306B\u5168\u90E8\u306E\u30AB\u30FC\u30C9\u304C\u8868\u306B\u51FA\u307E\u3059\u3002\u5834\u6240\u3092\u899A\u3048\u3066\u3001\u540C\u3058\u7D75\u306E\u30AB\u30FC\u30C9\u30922\u679A\u305A\u3064\u3081\u304F\u308A\u307E\u3059\u3002",
+    train: () => "\u5230\u7740\u3059\u308B\u96FB\u8ECA\u306E\u884C\u304D\u5148\u304C<b>".concat(levels.train, "\u672C\u524D</b>\u3068\u540C\u3058\u306A\u3089\u300C\u4E57\u308B\u300D\u3092\u62BC\u3057\u307E\u3059\u3002"),
+    cook: () => "\u934B\u306B\u5165\u308C\u308B\u6750\u6599\u306E\u9806\u756A\u3092\u899A\u3048\u3066\u3001".concat(settings.reverse ? "<b>\u9006\u306E\u9806\u756A</b>" : "\u540C\u3058\u9806\u756A", "\u3067\u9078\u3073\u307E\u3059\u3002"),
+    locker: () => "\u753B\u9762\u306B1\u3064\u305A\u3064\u51FA\u308B\u6697\u8A3C\u756A\u53F7\u3092\u899A\u3048\u3066\u3001".concat(settings.reverse ? "<b>\u9006\u306E\u9806\u756A</b>\u3067" : "", "\u5165\u529B\u3057\u307E\u3059\u3002"),
+    wallet: () => "\u5C0F\u92AD\u306E\u51FA\u3057\u5165\u308C\u3092\u982D\u306E\u4E2D\u3067\u8A08\u7B97\u3057\u3001\u6700\u5F8C\u306B\u304A\u8CA1\u5E03\u306B\u3042\u308B\u91D1\u984D\u3092\u7B54\u3048\u307E\u3059\u3002",
+    plan: () => "\u5BB6\u65CF\u304B\u3089\u306E\u4F1D\u8A00\u3092\u805E\u3044\u3066\u3001\u4F55\u66DC\u65E5\u306B\u4F55\u306E\u4E88\u5B9A\u304C\u3042\u308B\u304B\u3092\u899A\u3048\u3001\u30AB\u30EC\u30F3\u30C0\u30FC\u306B\u66F8\u304D\u8FBC\u307F\u307E\u3059\u3002"
+  };
+  function interstitial(g, first) {
+    return new Promise((res) => {
+      msg("");
+      scene("inter", '<div class="inter-in"><div class="ibadge '.concat(g, '">').concat(ICON[g], '</div><span class="label">\u30E9\u30A6\u30F3\u30C9 ').concat(S.rounds.length + 1, "\u3000").concat(TRAIN[g], "</span><h2>").concat(TITLE[g], "</h2><p>").concat(RULE[g](), '</p><span class="pill">').concat(levelText(g), '</span><button class="btn big" id="nx">\u59CB\u3081\u308B</button></div>'));
+      let done = false, tm = null;
+      const go = () => {
+        if (done || paused) return;
+        done = true;
+        clearTimeout(tm);
+        ac();
+        SFX.start();
+        res();
+      };
+      $("#nx").onclick = go;
+      if (!first) tm = setTimeout(go, 7e3);
+    });
+  }
+  function tickClock() {
+    if (!S) return;
+    if (S.once) {
+      $("#tfill").style.width = "100%";
+      $("#tleft").textContent = "".concat(TITLE[S.solo], "\u30001\u30E9\u30A6\u30F3\u30C9");
+      return;
+    }
+    const total = S.total, now = paused ? pauseAt : Date.now(), left = Math.max(0, S.endAt - now);
+    $("#tfill").style.width = left / total * 100 + "%";
+    const s = Math.ceil(left / 1e3);
+    $("#tleft").textContent = (S.solo ? TITLE[S.solo] + "\u3000" : "") + (left > 0 ? "\u6B8B\u308A ".concat(Math.floor(s / 60), ":").concat(String(s % 60).padStart(2, "0")) : "\u3053\u306E\u30E9\u30A6\u30F3\u30C9\u3067\u7D42\u4E86\u3067\u3059");
+  }
+  let lastPlay = {};
+  async function play(opt) {
+    opt = opt || {};
+    lastPlay = opt;
+    const solo = opt.solo, once = solo && opt.len === 1, mins = solo ? once ? 1 : opt.len : settings.minutes;
+    const order = solo ? [solo] : GAMES.filter((g) => settings.games[g]);
+    if (!order.length) return;
+    ac();
+    const my = ++session;
+    paused = false;
+    S = { start: Date.now(), total: mins * 6e4, endAt: Date.now() + mins * 6e4, pts: 0, combo: 0, rounds: [], solo, once };
+    $("#pts").textContent = "0";
+    $("#rounds").innerHTML = roundsHTML([], true);
+    $("#pauseOv").hidden = true;
+    $("#fb").hidden = true;
+    show("play");
+    keepAwake();
+    if (settings.bgm) bgm.start();
+    clearInterval(clock);
+    clock = setInterval(tickClock, 500);
+    tickClock();
+    const lp = settings.lastPlayed || {};
+    shuffle(order).sort((a, b) => (lp[a] || 0) - (lp[b] || 0));
+    let k = 0;
+    while (true) {
+      const g = order[k % order.length];
+      k++;
+      await interstitial(g, k === 1);
+      if (my !== session) return;
+      const r = await ROUND[g](my);
+      if (my !== session) return;
+      settings.lastPlayed = Object.assign(settings.lastPlayed || {}, { [g]: Date.now() });
+      save();
+      S.rounds.push(r);
+      SFX.done();
+      $("#rounds").innerHTML = roundsHTML(S.rounds, !once && Date.now() < S.endAt);
+      if (once || Date.now() >= S.endAt) break;
+    }
+    finish();
+  }
+  function stopPlay() {
+    session++;
+    collector = null;
+    quiet = false;
+    paused = false;
+    try {
+      speechSynthesis.cancel();
+    } catch (e) {
+    }
+    bgm.stop();
+    releaseAwake();
+    clearInterval(clock);
+    $("#pauseOv").hidden = true;
+  }
+  const LVTXT = { shop: (a, b) => "".concat(a, "\u2192").concat(b, "\u54C1"), sushi: (a, b) => "".concat(a, "\u2192").concat(b, "\u76BF\u524D"), stars: (a, b) => "".concat(a, "\u2192").concat(b, "\u500B"), phone: (a, b) => "".concat(a, "\u2192").concat(b, "\u6841"), bus: (a, b) => "".concat(a, "\u2192").concat(b, "\u304B\u6240"), med: (a, b) => "".concat(a, "\u2192").concat(b, "\u4EF6") };
+  ["cards", "train", "cook", "locker", "wallet", "plan"].forEach((g) => LVTXT[g] = (a, b) => "".concat(a, "\u2192").concat(b).concat(UNIT[g]));
+  function finish() {
+    stopPlay();
+    if (!S || !S.rounds.length) {
+      renderHome();
+      show("home");
+      return;
+    }
+    const prevBest = history.reduce((m, h) => Math.max(m, h.pts || 0), 0);
+    const rec = { t: S.start, min: Math.round((Date.now() - S.start) / 600) / 100, pts: S.pts, rounds: S.rounds };
+    if (S.solo) rec.solo = S.solo;
+    history.unshift(rec);
+    if (history.length > 300) history.length = 300;
+    save();
+    $("#rDate").textContent = curName() + "\u3000" + new Date(S.start).toLocaleDateString("ja-JP", { month: "long", day: "numeric", weekday: "short" });
+    $("#rNew").hidden = !(S.pts > prevBest && history.length > 1);
+    $("#rRounds").innerHTML = roundsHTML(S.rounds, false);
+    const byG = {};
+    S.rounds.forEach((r) => {
+      (byG[r.g] = byG[r.g] || []).push(r);
+    });
+    $("#rSum").innerHTML = GAMES.filter((g) => byG[g]).map((g) => {
+      const rs = byG[g], c = rs.reduce((a, r) => a + r.c, 0), n = rs.reduce((a, r) => a + r.n, 0);
+      return '<div class="gs">'.concat(ICON[g], "<span>").concat(SHORT[g], "\uFF08").concat(TRAIN[g], "\uFF09</span><b>").concat(LVTXT[g](rs[0].s, rs[rs.length - 1].e), "</b><span>\u6B63\u89E3 ").concat(c, "/").concat(n, "</span></div>");
+    }).join("");
+    const ups = S.rounds.filter((r) => r.e > r.s).length;
+    $("#rMsg").textContent = ups ? "\u30EC\u30D9\u30EB\u304C\u4E0A\u304C\u308A\u307E\u3057\u305F" : S.solo ? "".concat(TITLE[S.solo], "\u306E\u7DF4\u7FD2\u5B8C\u4E86") : "\u672C\u65E5\u306E\u30C8\u30EC\u30FC\u30CB\u30F3\u30B0\u5B8C\u4E86";
+    $("#again").textContent = S.solo ? "\u3053\u306E\u8AB2\u984C\u3092\u3082\u3046\u4E00\u5EA6" : "\u3082\u3046\u4E00\u5EA6";
+    $("#rNote").textContent = "".concat(S.rounds.length, "\u30E9\u30A6\u30F3\u30C9\u30FB\u7D04").concat(Math.max(1, Math.round(rec.min)), "\u5206\u3002\u6B21\u56DE\u306F\u73FE\u5728\u306E\u30EC\u30D9\u30EB\u304B\u3089\u518D\u958B\u3057\u307E\u3059\u3002");
+    show("result");
+    SFX.fanfare();
+    let v = 0;
+    const target = S.pts, inc = Math.max(1, Math.ceil(target / 40));
+    const iv = setInterval(() => {
+      v = Math.min(target, v + inc);
+      $("#rPts").textContent = v;
+      if (v >= target) clearInterval(iv);
+    }, 30);
+  }
+  function pause() {
+    if (paused || !S) return;
+    paused = true;
+    pauseAt = Date.now();
+    $("#pauseOv").hidden = false;
+    try {
+      speechSynthesis.cancel();
+    } catch (e) {
+    }
+    tickClock();
+  }
+  function resume() {
+    if (!paused) return;
+    S.endAt += Date.now() - pauseAt;
+    paused = false;
+    $("#pauseOv").hidden = true;
+    tickClock();
+  }
+  $("#pauseBtn").onclick = pause;
+  $("#resumeBtn").onclick = resume;
+  $("#endBtn").onclick = () => finish();
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden && !$("#play").hidden) pause();
   });
-}
-function tickClock(){
-  if(!S)return;
-  if(S.once){$('#tfill').style.width='100%';$('#tleft').textContent=`${TITLE[S.solo]}　1ラウンド`;return}
-  const total=S.total,now=paused?pauseAt:Date.now(),left=Math.max(0,S.endAt-now);
-  $('#tfill').style.width=(left/total*100)+'%';
-  const s=Math.ceil(left/1000);$('#tleft').textContent=(S.solo?TITLE[S.solo]+'　':'')+(left>0?`残り ${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`:'このラウンドで終了です');
-}
-let lastPlay={};
-async function play(opt){
-  opt=opt||{};lastPlay=opt;
-  const solo=opt.solo,once=solo&&opt.len===1,mins=solo?(once?1:opt.len):settings.minutes;
-  const order=solo?[solo]:GAMES.filter(g=>settings.games[g]);if(!order.length)return;
-  ac();const my=++session;paused=false;
-  S={start:Date.now(),total:mins*60000,endAt:Date.now()+mins*60000,pts:0,combo:0,rounds:[],solo,once};
-  $('#pts').textContent='0';$('#rounds').innerHTML=roundsHTML([],true);$('#pauseOv').hidden=true;$('#fb').hidden=true;
-  show('play');keepAwake();if(settings.bgm)bgm.start();clearInterval(clock);clock=setInterval(tickClock,500);tickClock();
-  // しばらく遊んでいない課題から順に出す（同じ順番の日は少ない）
-  const lp=settings.lastPlayed||{};shuffle(order).sort((a,b)=>(lp[a]||0)-(lp[b]||0));
-  let k=0;
-  while(true){
-    const g=order[k%order.length];k++;
-    await interstitial(g,k===1);if(my!==session)return;
-    const r=await ROUND[g](my);if(my!==session)return;
-    settings.lastPlayed=Object.assign(settings.lastPlayed||{},{[g]:Date.now()});save();
-    S.rounds.push(r);SFX.done();$('#rounds').innerHTML=roundsHTML(S.rounds,!once&&Date.now()<S.endAt);
-    if(once||Date.now()>=S.endAt)break;
+  function renderHome() {
+    $("#uName").textContent = curName();
+    $("#route").innerHTML = GAMES.map((g) => '<button class="stop '.concat(g, '" data-solo="').concat(g, '" aria-pressed="').concat(soloSel === g, '" aria-label="').concat(TITLE[g], '\u3060\u3051\u3092\u7DF4\u7FD2" style="opacity:').concat(settings.games[g] ? 1 : 0.6, '">').concat(ICON[g], "<b>").concat(SHORT[g], "</b><small>").concat(TRAIN[g], "<br>Lv ").concat(lvLabel(g)).concat(settings.games[g] ? "" : '<span class="off">\u65E5\u66FF\u308F\u308A\u5BFE\u8C61\u5916</span>', "</small></button>")).join("");
+    renderSolo();
+    $$("#minSeg button").forEach((b) => b.setAttribute("aria-pressed", +b.dataset.min === settings.minutes));
+    $$("[data-game]").forEach((b) => b.setAttribute("aria-pressed", !!settings.games[b.dataset.game]));
+    $("#tRev").setAttribute("aria-pressed", settings.reverse);
+    $("#tSound").setAttribute("aria-pressed", settings.sound);
+    $("#tBgm").setAttribute("aria-pressed", settings.bgm);
+    $("#tVoice").setAttribute("aria-pressed", settings.voice);
+    $$("[data-speed]").forEach((b) => b.setAttribute("aria-pressed", settings.speed === b.dataset.speed));
+    const best = history.reduce((m, h) => Math.max(m, h.pts || 0), 0), today = (/* @__PURE__ */ new Date()).toDateString(), nToday = history.filter((h) => new Date(h.t).toDateString() === today).length;
+    $("#bests").innerHTML = "<span>\u81EA\u5DF1\u30D9\u30B9\u30C8 <b>".concat(best, "</b> pt</span><span>\u672C\u65E5 <b>").concat(nToday, "</b> \u56DE</span><span>\u9078\u629E\u4E2D\u306E\u8AB2\u984C <b>").concat(GAMES.filter((g) => settings.games[g]).length, "</b> / ").concat(GAMES.length, "</span>");
   }
-  finish();
-}
-function stopPlay(){session++;collector=null;quiet=false;paused=false;try{speechSynthesis.cancel()}catch(e){}bgm.stop();releaseAwake();clearInterval(clock);$('#pauseOv').hidden=true}
-const LVTXT={shop:(a,b)=>`${a}→${b}品`,sushi:(a,b)=>`${a}→${b}皿前`,stars:(a,b)=>`${a}→${b}個`,phone:(a,b)=>`${a}→${b}桁`,bus:(a,b)=>`${a}→${b}か所`,med:(a,b)=>`${a}→${b}件`};
-['cards','train','cook','locker','wallet','plan'].forEach(g=>LVTXT[g]=(a,b)=>`${a}→${b}${UNIT[g]}`);
-function finish(){
-  stopPlay();
-  if(!S||!S.rounds.length){renderHome();show('home');return}
-  const prevBest=history.reduce((m,h)=>Math.max(m,h.pts||0),0);
-  const rec={t:S.start,min:Math.round((Date.now()-S.start)/600)/100,pts:S.pts,rounds:S.rounds};if(S.solo)rec.solo=S.solo;
-  history.unshift(rec);if(history.length>300)history.length=300;save();
-  $('#rDate').textContent=curName()+'　'+new Date(S.start).toLocaleDateString('ja-JP',{month:'long',day:'numeric',weekday:'short'});
-  $('#rNew').hidden=!(S.pts>prevBest&&history.length>1);
-  $('#rRounds').innerHTML=roundsHTML(S.rounds,false);
-  const byG={};S.rounds.forEach(r=>{(byG[r.g]=byG[r.g]||[]).push(r)});
-  $('#rSum').innerHTML=GAMES.filter(g=>byG[g]).map(g=>{
-    const rs=byG[g],c=rs.reduce((a,r)=>a+r.c,0),n=rs.reduce((a,r)=>a+r.n,0);
-    return `<div class="gs">${ICON[g]}<span>${SHORT[g]}（${TRAIN[g]}）</span><b>${LVTXT[g](rs[0].s,rs[rs.length-1].e)}</b><span>正解 ${c}/${n}</span></div>`}).join('');
-  const ups=S.rounds.filter(r=>r.e>r.s).length;
-  $('#rMsg').textContent=ups?'レベルが上がりました':S.solo?`${TITLE[S.solo]}の練習完了`:'本日のトレーニング完了';
-  $('#again').textContent=S.solo?'この課題をもう一度':'もう一度';
-  $('#rNote').textContent=`${S.rounds.length}ラウンド・約${Math.max(1,Math.round(rec.min))}分。次回は現在のレベルから再開します。`;
-  show('result');SFX.fanfare();
-  let v=0;const target=S.pts,inc=Math.max(1,Math.ceil(target/40));const iv=setInterval(()=>{v=Math.min(target,v+inc);$('#rPts').textContent=v;if(v>=target)clearInterval(iv)},30);
-}
-function pause(){if(paused||!S)return;paused=true;pauseAt=Date.now();$('#pauseOv').hidden=false;try{speechSynthesis.cancel()}catch(e){}tickClock()}
-function resume(){if(!paused)return;S.endAt+=Date.now()-pauseAt;paused=false;$('#pauseOv').hidden=true;tickClock()}
-$('#pauseBtn').onclick=pause;$('#resumeBtn').onclick=resume;$('#endBtn').onclick=()=>finish();
-document.addEventListener('visibilitychange',()=>{if(document.hidden&&!$('#play').hidden)pause()});
-
-/* ---------- Home ---------- */
-function renderHome(){
-  $('#uName').textContent=curName();
-  $('#route').innerHTML=GAMES.map(g=>`<button class="stop ${g}" data-solo="${g}" aria-pressed="${soloSel===g}" aria-label="${TITLE[g]}だけを練習" style="opacity:${settings.games[g]?1:.6}">${ICON[g]}<b>${SHORT[g]}</b><small>${TRAIN[g]}<br>Lv ${lvLabel(g)}${settings.games[g]?'':'<span class="off">日替わり対象外</span>'}</small></button>`).join('');
-  renderSolo();
-  $$('#minSeg button').forEach(b=>b.setAttribute('aria-pressed',+b.dataset.min===settings.minutes));
-  $$('[data-game]').forEach(b=>b.setAttribute('aria-pressed',!!settings.games[b.dataset.game]));
-  $('#tRev').setAttribute('aria-pressed',settings.reverse);
-  $('#tSound').setAttribute('aria-pressed',settings.sound);$('#tBgm').setAttribute('aria-pressed',settings.bgm);$('#tVoice').setAttribute('aria-pressed',settings.voice);
-  $$('[data-speed]').forEach(b=>b.setAttribute('aria-pressed',settings.speed===b.dataset.speed));
-  const best=history.reduce((m,h)=>Math.max(m,h.pts||0),0),today=new Date().toDateString(),nToday=history.filter(h=>new Date(h.t).toDateString()===today).length;
-  $('#bests').innerHTML=`<span>自己ベスト <b>${best}</b> pt</span><span>本日 <b>${nToday}</b> 回</span><span>選択中の課題 <b>${GAMES.filter(g=>settings.games[g]).length}</b> / ${GAMES.length}</span>`;
-}
-$$('#minSeg button').forEach(b=>b.onclick=()=>{settings.minutes=+b.dataset.min;save();renderHome()});
-$$('[data-game]').forEach(b=>b.onclick=()=>{const g=b.dataset.game;settings.games[g]=!settings.games[g];if(!GAMES.some(x=>settings.games[x]))settings.games[g]=true;save();renderHome()});
-$('#tRev').onclick=()=>{settings.reverse=!settings.reverse;save();renderHome()};
-$('#allOn').onclick=()=>{GAMES.forEach(g=>settings.games[g]=true);save();renderHome()};
-$('#tSound').onclick=()=>{settings.sound=!settings.sound;save();renderHome();if(settings.sound){ac();SFX.hit()}};
-$('#tBgm').onclick=()=>{settings.bgm=!settings.bgm;save();renderHome()};
-$('#tVoice').onclick=()=>{settings.voice=!settings.voice;save();renderHome();if(settings.voice)say('読み上げをオンにしました')};
-$$('[data-speed]').forEach(b=>b.onclick=()=>{settings.speed=b.dataset.speed;save();renderHome()});
-$('#startBtn').onclick=()=>play();$('#again').onclick=()=>play(lastPlay);
-
-/* ---------- 個別練習 ---------- */
-let soloSel=null;
-function renderSolo(){
-  const box=$('#solo');box.hidden=!soloSel;if(!soloSel)return;
-  const g=soloSel,len=settings.soloLen||1;
-  $('#soloBadge').className='ibadge sm '+g;$('#soloBadge').innerHTML=ICON[g];
-  $('#soloTrain').textContent=TRAIN[g];$('#soloTitle').textContent=TITLE[g];$('#soloLv').textContent=levelText(g);
-  $('#soloRule').innerHTML=RULE[g]();
-  $$('#soloSeg button').forEach(b=>b.setAttribute('aria-pressed',+b.dataset.len===len));
-}
-$('#route').addEventListener('click',e=>{
-  const b=e.target.closest('[data-solo]');if(!b)return;
-  soloSel=soloSel===b.dataset.solo?null:b.dataset.solo;tone(660,.08,0,'sine',.06);renderHome();
-  if(soloSel)$('#solo').scrollIntoView({block:'nearest',behavior:'smooth'});
-});
-$$('#soloSeg button').forEach(b=>b.onclick=()=>{settings.soloLen=+b.dataset.len;save();renderSolo()});
-$('#soloStart').onclick=()=>{if(soloSel)play({solo:soloSel,len:settings.soloLen||1})};
-$('#soloClose').onclick=()=>{soloSel=null;renderHome()};
-$('#toHome').onclick=()=>{renderHome();show('home')};
-$('#toRecords').onclick=()=>{renderRecords();show('records')};
-$('#toAbout').onclick=()=>show('about');
-$('#toUsers').onclick=()=>{uEdit=uDel=null;renderUsers();show('users')};
-
-/* ---------- Users screen ---------- */
-let uEdit=null,uDel=null;
-const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-function userMeta(id){
-  const h=store.get('ot3.history.'+id,[]),l=Object.assign({},DEF_LV,store.get('ot3.levels.'+id,{}));
-  const last=h.length?`最終実施 ${fmt(h[0].t)}・全${h.length}回`:'まだ実施していません';
-  return `${last}${h.length?`<br>前回の得点 ${h[0].pts} pt`:''}`;
-}
-function renderUsers(){
-  $('#ulist').innerHTML=users.map(u=>{
-    const isCur=u.id===cur;let body;
-    if(uEdit===u.id)body=`<form data-id="${u.id}"><input type="text" id="ren-${u.id}" value="${esc(u.name)}" maxlength="20" aria-label="新しい名前"><div class="acts"><button class="btn" type="submit">保存</button><button class="btn sub" type="button" data-cancel>やめる</button></div></form>`;
-    else if(uDel===u.id)body=`<p>${esc(u.name)} のレベルと記録をすべて削除します。元に戻せません。</p><div class="acts"><button class="btn" style="background:var(--oops)" data-delyes="${u.id}">削除する</button><button class="btn sub" data-cancel>やめる</button></div>`;
-    else body=`<div class="acts">${isCur?'<span class="pill">選択中</span>':''}<button class="btn" data-pick="${u.id}">${isCur?'このまま始める':'この利用者で始める'}</button><button class="ghost" data-ren="${u.id}">名前を変更</button>${users.length>1?`<button class="ghost" data-del="${u.id}">削除</button>`:''}</div>`;
-    return `<div class="ucard${isCur?' cur':''}"><h3>${esc(u.name)}</h3><p class="note">${userMeta(u.id)}</p>${body}</div>`;
-  }).join('');
-}
-$('#ulist').addEventListener('click',e=>{
-  const b=e.target.closest('button');if(!b||b.type==='submit')return;
-  if(b.dataset.pick){loadUser(b.dataset.pick);renderHome();show('home')}
-  else if(b.dataset.ren){uEdit=b.dataset.ren;uDel=null;renderUsers();const i=$('#ren-'+uEdit);if(i){i.focus();i.select()}}
-  else if(b.dataset.del){uDel=b.dataset.del;uEdit=null;renderUsers()}
-  else if(b.dataset.delyes){
-    const id=b.dataset.delyes;users=users.filter(u=>u.id!==id);
-    ['settings','levels','history'].forEach(k=>store.del(`ot3.${k}.${id}`));store.set('ot3.users',users);
-    uDel=null;if(id===cur)loadUser(users[0].id);renderUsers();
+  $$("#minSeg button").forEach((b) => b.onclick = () => {
+    settings.minutes = +b.dataset.min;
+    save();
+    renderHome();
+  });
+  $$("[data-game]").forEach((b) => b.onclick = () => {
+    const g = b.dataset.game;
+    settings.games[g] = !settings.games[g];
+    if (!GAMES.some((x) => settings.games[x])) settings.games[g] = true;
+    save();
+    renderHome();
+  });
+  $("#tRev").onclick = () => {
+    settings.reverse = !settings.reverse;
+    save();
+    renderHome();
+  };
+  $("#allOn").onclick = () => {
+    GAMES.forEach((g) => settings.games[g] = true);
+    save();
+    renderHome();
+  };
+  $("#tSound").onclick = () => {
+    settings.sound = !settings.sound;
+    save();
+    renderHome();
+    if (settings.sound) {
+      ac();
+      SFX.hit();
+    }
+  };
+  $("#tBgm").onclick = () => {
+    settings.bgm = !settings.bgm;
+    save();
+    renderHome();
+  };
+  $("#tVoice").onclick = () => {
+    settings.voice = !settings.voice;
+    save();
+    renderHome();
+    if (settings.voice) say("\u8AAD\u307F\u4E0A\u3052\u3092\u30AA\u30F3\u306B\u3057\u307E\u3057\u305F");
+  };
+  $$("[data-speed]").forEach((b) => b.onclick = () => {
+    settings.speed = b.dataset.speed;
+    save();
+    renderHome();
+  });
+  $("#startBtn").onclick = () => play();
+  $("#again").onclick = () => play(lastPlay);
+  let soloSel = null;
+  function renderSolo() {
+    const box = $("#solo");
+    box.hidden = !soloSel;
+    if (!soloSel) return;
+    const g = soloSel, len = settings.soloLen || 1;
+    $("#soloBadge").className = "ibadge sm " + g;
+    $("#soloBadge").innerHTML = ICON[g];
+    $("#soloTrain").textContent = TRAIN[g];
+    $("#soloTitle").textContent = TITLE[g];
+    $("#soloLv").textContent = levelText(g);
+    $("#soloRule").innerHTML = RULE[g]();
+    $$("#soloSeg button").forEach((b) => b.setAttribute("aria-pressed", +b.dataset.len === len));
   }
-  else if('cancel' in b.dataset){uEdit=uDel=null;renderUsers()}
-});
-$('#ulist').addEventListener('submit',e=>{
-  e.preventDefault();const f=e.target,v=f.querySelector('input').value.trim(),u=users.find(x=>x.id===f.dataset.id);
-  if(v&&u){u.name=v;store.set('ot3.users',users)}uEdit=null;renderUsers();
-});
-$('#uadd').addEventListener('submit',e=>{
-  e.preventDefault();const v=$('#uname').value.trim();if(!v){$('#uname').focus();return}
-  const u={id:newId(),name:v,c:Date.now()};users.push(u);store.set('ot3.users',users);$('#uname').value='';
-  loadUser(u.id);renderHome();show('home');
-});
-$$('.back').forEach(b=>b.onclick=()=>{renderHome();show('home')});
-
-/* ---------- Records ---------- */
-const KEYS={shop_f:['スーパー（順唱）',2,8,'品'],shop_b:['スーパー（逆順）',2,8,'品'],sushi:['回転寿司（n-back）',1,4,'皿前'],stars_f:['星空（順唱）',2,9,'個'],stars_b:['星空（逆順）',2,9,'個'],phone_f:['電話メモ（順唱）',3,11,'桁'],phone_b:['電話メモ（逆順）',3,11,'桁'],bus:['バス（乗客数）',2,8,'か所'],med:['お薬カレンダー',2,7,'件'],
-  cards:['神経衰弱',3,8,'組'],train:['駅のホーム（n-back）',1,4,'本前'],cook_f:['カレー作り（順唱）',2,8,'品'],cook_b:['カレー作り（逆順）',2,8,'品'],
-  locker_f:['コインロッカー（順唱）',3,10,'桁'],locker_b:['コインロッカー（逆順）',3,10,'桁'],wallet:['お財布の中身',2,8,'回'],plan:['予定の伝言',2,7,'件']};
-function chart(vals,min,max,unit){
-  const W=320,H=120,L=30,R=10,T=10,B=22,x=i=>vals.length<2?L+(W-L-R)/2:L+i*(W-L-R)/(vals.length-1),y=v=>T+(max-v)*(H-T-B)/(max-min);
-  const ticks=range(max-min+1).map(i=>min+i).filter(v=>(max-min)<=5||(v-min)%2===0);
-  const pts=vals.map((v,i)=>`${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
-  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="レベルの推移">
-    ${ticks.map(v=>`<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/><text x="${L-8}" y="${y(v)+4}" text-anchor="end" font-size="11" fill="var(--muted)">${v}</text>`).join('')}
-    ${vals.length>1?`<polygon points="${L},${H-B} ${pts} ${x(vals.length-1).toFixed(1)},${H-B}" fill="var(--accent)" opacity=".12"/>`:''}
-    <polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round"/>
-    ${vals.map((v,i)=>`<circle cx="${x(i)}" cy="${y(v)}" r="${i===vals.length-1?5:3}" fill="var(--accent)"/>`).join('')}
-    <text x="${L}" y="${H-5}" font-size="11" fill="var(--muted)">古い</text><text x="${W-R}" y="${H-5}" font-size="11" fill="var(--muted)" text-anchor="end">最新（${unit}）</text></svg>`;
-}
-const fmt=t=>{const d=new Date(t);return `${d.getMonth()+1}/${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`};
-function sumG(h,g){const rs=h.rounds.filter(r=>r.g===g);if(!rs.length)return '—';const c=rs.reduce((a,r)=>a+r.c,0),n=rs.reduce((a,r)=>a+r.n,0);return `Lv${rs[0].s}→${rs[rs.length-1].e}　${c}/${n}`}
-function renderRecords(){
-  $('#recs').innerHTML=Object.entries(KEYS).map(([k,[name,mn,mx,u]])=>{
-    const all=history.filter(h=>h.rounds.some(r=>r.k===k)),ss=all.slice(0,14).reverse();
-    if(!all.length&&k.endsWith('_b'))return '';
-    const nb=k==='sushi'||k==='train';
-    const vals=ss.map(h=>{const rs=h.rounds.filter(r=>r.k===k);return nb?rs[rs.length-1].s:Math.max(...rs.map(r=>r.b||r.s))});
-    const body=ss.length?chart(vals,mn,mx,nb?'n':'最高'+u)+`<p class="note">直近：${fmt(ss[ss.length-1].t)}　全${all.length}回</p>`
-      :`<p class="none">まだ記録がありません。トレーニングを行うと、到達レベル（${u}）の推移が表示されます。</p>`;
-    return `<div class="rec"><h3>${name}</h3><span class="pill" style="align-self:flex-start">現在レベル ${levels[k]}${u}</span>${body}</div>`;
-  }).join('');
-  $('#recRows').innerHTML=history.length?history.slice(0,40).map(h=>`<tr><td>${fmt(h.t)}${h.solo?'<br><span class="pill">個別練習</span>':''}</td><td>${h.min}分</td><td>${h.rounds.length}</td><td>${h.pts}</td><td class="wrapcell">${GAMES.filter(g=>h.rounds.some(r=>r.g===g)).map(g=>`${SHORT[g]} ${sumG(h,g)}`).join('<br>')}</td></tr>`).join('')
-    :'<tr><td colspan="5" style="color:var(--muted)">記録はまだありません</td></tr>';
-  $('#recUser').textContent=curName();$('#resetTxt').textContent=`${curName()} の記録とレベルをすべて消去します。`;
-  $('#resetBox').hidden=true;$('#csvBox').hidden=true;
-}
-function csv(){const rows=['利用者,日時,セッション分,ラウンド,課題,開始レベル,終了レベル,最高到達,正答(ヒット)数,試行(標的)数,誤反応'],nm=curName().replace(/[,\n]/g,' ');
-  history.forEach(h=>h.rounds.forEach((r,i)=>rows.push([nm,new Date(h.t).toLocaleString('ja-JP'),h.min,i+1,KEYS[r.k][0],r.s,r.e,r.g==='sushi'?'':r.b,r.c,r.n,r.fa??''].join(','))));return rows.join('\n')}
-$('#copyCsv').onclick=()=>{const t=csv(),b=$('#copyCsv'),fb=()=>{$('#csvBox').hidden=false;const ta=$('#csvText');ta.value=t;ta.focus();ta.select()};
-  try{navigator.clipboard.writeText(t).then(()=>{b.textContent='コピーしました';setTimeout(()=>b.textContent='CSVをコピー',1800)},fb)}catch(e){fb()}};
-$('#resetAsk').onclick=()=>{$('#resetBox').hidden=false};
-$('#resetNo').onclick=()=>{$('#resetBox').hidden=true};
-$('#resetYes').onclick=()=>{history=[];levels=Object.assign({},DEF_LV);save();renderRecords()};
-
-renderHome();
+  $("#route").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-solo]");
+    if (!b) return;
+    soloSel = soloSel === b.dataset.solo ? null : b.dataset.solo;
+    tone(660, 0.08, 0, "sine", 0.06);
+    renderHome();
+    if (soloSel) $("#solo").scrollIntoView({ block: "nearest", behavior: "smooth" });
+  });
+  $$("#soloSeg button").forEach((b) => b.onclick = () => {
+    settings.soloLen = +b.dataset.len;
+    save();
+    renderSolo();
+  });
+  $("#soloStart").onclick = () => {
+    if (soloSel) play({ solo: soloSel, len: settings.soloLen || 1 });
+  };
+  $("#soloClose").onclick = () => {
+    soloSel = null;
+    renderHome();
+  };
+  $("#toHome").onclick = () => {
+    renderHome();
+    show("home");
+  };
+  $("#toRecords").onclick = () => {
+    renderRecords();
+    show("records");
+  };
+  $("#toAbout").onclick = () => show("about");
+  $("#toUsers").onclick = () => {
+    uEdit = uDel = null;
+    renderUsers();
+    show("users");
+  };
+  let uEdit = null, uDel = null;
+  const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  function userMeta(id) {
+    const h = store.get("ot3.history." + id, []), l = Object.assign({}, DEF_LV, store.get("ot3.levels." + id, {}));
+    const last = h.length ? "\u6700\u7D42\u5B9F\u65BD ".concat(fmt(h[0].t), "\u30FB\u5168").concat(h.length, "\u56DE") : "\u307E\u3060\u5B9F\u65BD\u3057\u3066\u3044\u307E\u305B\u3093";
+    return "".concat(last).concat(h.length ? "<br>\u524D\u56DE\u306E\u5F97\u70B9 ".concat(h[0].pts, " pt") : "");
+  }
+  function renderUsers() {
+    $("#ulist").innerHTML = users.map((u) => {
+      const isCur = u.id === cur;
+      let body;
+      if (uEdit === u.id) body = '<form data-id="'.concat(u.id, '"><input type="text" id="ren-').concat(u.id, '" value="').concat(esc(u.name), '" maxlength="20" aria-label="\u65B0\u3057\u3044\u540D\u524D"><div class="acts"><button class="btn" type="submit">\u4FDD\u5B58</button><button class="btn sub" type="button" data-cancel>\u3084\u3081\u308B</button></div></form>');
+      else if (uDel === u.id) body = "<p>".concat(esc(u.name), ' \u306E\u30EC\u30D9\u30EB\u3068\u8A18\u9332\u3092\u3059\u3079\u3066\u524A\u9664\u3057\u307E\u3059\u3002\u5143\u306B\u623B\u305B\u307E\u305B\u3093\u3002</p><div class="acts"><button class="btn" style="background:var(--oops)" data-delyes="').concat(u.id, '">\u524A\u9664\u3059\u308B</button><button class="btn sub" data-cancel>\u3084\u3081\u308B</button></div>');
+      else body = '<div class="acts">'.concat(isCur ? '<span class="pill">\u9078\u629E\u4E2D</span>' : "", '<button class="btn" data-pick="').concat(u.id, '">').concat(isCur ? "\u3053\u306E\u307E\u307E\u59CB\u3081\u308B" : "\u3053\u306E\u5229\u7528\u8005\u3067\u59CB\u3081\u308B", '</button><button class="ghost" data-ren="').concat(u.id, '">\u540D\u524D\u3092\u5909\u66F4</button>').concat(users.length > 1 ? '<button class="ghost" data-del="'.concat(u.id, '">\u524A\u9664</button>') : "", "</div>");
+      return '<div class="ucard'.concat(isCur ? " cur" : "", '"><h3>').concat(esc(u.name), '</h3><p class="note">').concat(userMeta(u.id), "</p>").concat(body, "</div>");
+    }).join("");
+  }
+  $("#ulist").addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (!b || b.type === "submit") return;
+    if (b.dataset.pick) {
+      loadUser(b.dataset.pick);
+      renderHome();
+      show("home");
+    } else if (b.dataset.ren) {
+      uEdit = b.dataset.ren;
+      uDel = null;
+      renderUsers();
+      const i = $("#ren-" + uEdit);
+      if (i) {
+        i.focus();
+        i.select();
+      }
+    } else if (b.dataset.del) {
+      uDel = b.dataset.del;
+      uEdit = null;
+      renderUsers();
+    } else if (b.dataset.delyes) {
+      const id = b.dataset.delyes;
+      users = users.filter((u) => u.id !== id);
+      ["settings", "levels", "history"].forEach((k) => store.del("ot3.".concat(k, ".").concat(id)));
+      store.set("ot3.users", users);
+      uDel = null;
+      if (id === cur) loadUser(users[0].id);
+      renderUsers();
+    } else if ("cancel" in b.dataset) {
+      uEdit = uDel = null;
+      renderUsers();
+    }
+  });
+  $("#ulist").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const f = e.target, v = f.querySelector("input").value.trim(), u = users.find((x) => x.id === f.dataset.id);
+    if (v && u) {
+      u.name = v;
+      store.set("ot3.users", users);
+    }
+    uEdit = null;
+    renderUsers();
+  });
+  $("#uadd").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const v = $("#uname").value.trim();
+    if (!v) {
+      $("#uname").focus();
+      return;
+    }
+    const u = { id: newId(), name: v, c: Date.now() };
+    users.push(u);
+    store.set("ot3.users", users);
+    $("#uname").value = "";
+    loadUser(u.id);
+    renderHome();
+    show("home");
+  });
+  $$(".back").forEach((b) => b.onclick = () => {
+    renderHome();
+    show("home");
+  });
+  const KEYS = {
+    shop_f: ["\u30B9\u30FC\u30D1\u30FC\uFF08\u9806\u5531\uFF09", 2, 8, "\u54C1"],
+    shop_b: ["\u30B9\u30FC\u30D1\u30FC\uFF08\u9006\u9806\uFF09", 2, 8, "\u54C1"],
+    sushi: ["\u56DE\u8EE2\u5BFF\u53F8\uFF08n-back\uFF09", 1, 4, "\u76BF\u524D"],
+    stars_f: ["\u661F\u7A7A\uFF08\u9806\u5531\uFF09", 2, 9, "\u500B"],
+    stars_b: ["\u661F\u7A7A\uFF08\u9006\u9806\uFF09", 2, 9, "\u500B"],
+    phone_f: ["\u96FB\u8A71\u30E1\u30E2\uFF08\u9806\u5531\uFF09", 3, 11, "\u6841"],
+    phone_b: ["\u96FB\u8A71\u30E1\u30E2\uFF08\u9006\u9806\uFF09", 3, 11, "\u6841"],
+    bus: ["\u30D0\u30B9\uFF08\u4E57\u5BA2\u6570\uFF09", 2, 8, "\u304B\u6240"],
+    med: ["\u304A\u85AC\u30AB\u30EC\u30F3\u30C0\u30FC", 2, 7, "\u4EF6"],
+    cards: ["\u795E\u7D4C\u8870\u5F31", 3, 8, "\u7D44"],
+    train: ["\u99C5\u306E\u30DB\u30FC\u30E0\uFF08n-back\uFF09", 1, 4, "\u672C\u524D"],
+    cook_f: ["\u30AB\u30EC\u30FC\u4F5C\u308A\uFF08\u9806\u5531\uFF09", 2, 8, "\u54C1"],
+    cook_b: ["\u30AB\u30EC\u30FC\u4F5C\u308A\uFF08\u9006\u9806\uFF09", 2, 8, "\u54C1"],
+    locker_f: ["\u30B3\u30A4\u30F3\u30ED\u30C3\u30AB\u30FC\uFF08\u9806\u5531\uFF09", 3, 10, "\u6841"],
+    locker_b: ["\u30B3\u30A4\u30F3\u30ED\u30C3\u30AB\u30FC\uFF08\u9006\u9806\uFF09", 3, 10, "\u6841"],
+    wallet: ["\u304A\u8CA1\u5E03\u306E\u4E2D\u8EAB", 2, 8, "\u56DE"],
+    plan: ["\u4E88\u5B9A\u306E\u4F1D\u8A00", 2, 7, "\u4EF6"]
+  };
+  function chart(vals, min, max, unit) {
+    const W = 320, H = 120, L = 30, R = 10, T = 10, B = 22, x = (i) => vals.length < 2 ? L + (W - L - R) / 2 : L + i * (W - L - R) / (vals.length - 1), y = (v) => T + (max - v) * (H - T - B) / (max - min);
+    const ticks = range(max - min + 1).map((i) => min + i).filter((v) => max - min <= 5 || (v - min) % 2 === 0);
+    const pts = vals.map((v, i) => "".concat(x(i).toFixed(1), ",").concat(y(v).toFixed(1))).join(" ");
+    return '<svg viewBox="0 0 '.concat(W, " ").concat(H, '" role="img" aria-label="\u30EC\u30D9\u30EB\u306E\u63A8\u79FB">\n    ').concat(ticks.map((v) => '<line x1="'.concat(L, '" x2="').concat(W - R, '" y1="').concat(y(v), '" y2="').concat(y(v), '" stroke="var(--line)"/><text x="').concat(L - 8, '" y="').concat(y(v) + 4, '" text-anchor="end" font-size="11" fill="var(--muted)">').concat(v, "</text>")).join(""), "\n    ").concat(vals.length > 1 ? '<polygon points="'.concat(L, ",").concat(H - B, " ").concat(pts, " ").concat(x(vals.length - 1).toFixed(1), ",").concat(H - B, '" fill="var(--accent)" opacity=".12"/>') : "", '\n    <polyline points="').concat(pts, '" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round"/>\n    ').concat(vals.map((v, i) => '<circle cx="'.concat(x(i), '" cy="').concat(y(v), '" r="').concat(i === vals.length - 1 ? 5 : 3, '" fill="var(--accent)"/>')).join(""), '\n    <text x="').concat(L, '" y="').concat(H - 5, '" font-size="11" fill="var(--muted)">\u53E4\u3044</text><text x="').concat(W - R, '" y="').concat(H - 5, '" font-size="11" fill="var(--muted)" text-anchor="end">\u6700\u65B0\uFF08').concat(unit, "\uFF09</text></svg>");
+  }
+  const fmt = (t) => {
+    const d = new Date(t);
+    return "".concat(d.getMonth() + 1, "/").concat(d.getDate(), " ").concat(String(d.getHours()).padStart(2, "0"), ":").concat(String(d.getMinutes()).padStart(2, "0"));
+  };
+  function sumG(h, g) {
+    const rs = h.rounds.filter((r) => r.g === g);
+    if (!rs.length) return "\u2014";
+    const c = rs.reduce((a, r) => a + r.c, 0), n = rs.reduce((a, r) => a + r.n, 0);
+    return "Lv".concat(rs[0].s, "\u2192").concat(rs[rs.length - 1].e, "\u3000").concat(c, "/").concat(n);
+  }
+  function renderRecords() {
+    $("#recs").innerHTML = Object.entries(KEYS).map(([k, [name, mn, mx, u]]) => {
+      const all = history.filter((h) => h.rounds.some((r) => r.k === k)), ss = all.slice(0, 14).reverse();
+      if (!all.length && k.endsWith("_b")) return "";
+      const nb = k === "sushi" || k === "train";
+      const vals = ss.map((h) => {
+        const rs = h.rounds.filter((r) => r.k === k);
+        return nb ? rs[rs.length - 1].s : Math.max(...rs.map((r) => r.b || r.s));
+      });
+      const body = ss.length ? chart(vals, mn, mx, nb ? "n" : "\u6700\u9AD8" + u) + '<p class="note">\u76F4\u8FD1\uFF1A'.concat(fmt(ss[ss.length - 1].t), "\u3000\u5168").concat(all.length, "\u56DE</p>") : '<p class="none">\u307E\u3060\u8A18\u9332\u304C\u3042\u308A\u307E\u305B\u3093\u3002\u30C8\u30EC\u30FC\u30CB\u30F3\u30B0\u3092\u884C\u3046\u3068\u3001\u5230\u9054\u30EC\u30D9\u30EB\uFF08'.concat(u, "\uFF09\u306E\u63A8\u79FB\u304C\u8868\u793A\u3055\u308C\u307E\u3059\u3002</p>");
+      return '<div class="rec"><h3>'.concat(name, '</h3><span class="pill" style="align-self:flex-start">\u73FE\u5728\u30EC\u30D9\u30EB ').concat(levels[k]).concat(u, "</span>").concat(body, "</div>");
+    }).join("");
+    $("#recRows").innerHTML = history.length ? history.slice(0, 40).map((h) => "<tr><td>".concat(fmt(h.t)).concat(h.solo ? '<br><span class="pill">\u500B\u5225\u7DF4\u7FD2</span>' : "", "</td><td>").concat(h.min, "\u5206</td><td>").concat(h.rounds.length, "</td><td>").concat(h.pts, '</td><td class="wrapcell">').concat(GAMES.filter((g) => h.rounds.some((r) => r.g === g)).map((g) => "".concat(SHORT[g], " ").concat(sumG(h, g))).join("<br>"), "</td></tr>")).join("") : '<tr><td colspan="5" style="color:var(--muted)">\u8A18\u9332\u306F\u307E\u3060\u3042\u308A\u307E\u305B\u3093</td></tr>';
+    $("#recUser").textContent = curName();
+    $("#resetTxt").textContent = "".concat(curName(), " \u306E\u8A18\u9332\u3068\u30EC\u30D9\u30EB\u3092\u3059\u3079\u3066\u6D88\u53BB\u3057\u307E\u3059\u3002");
+    $("#resetBox").hidden = true;
+    $("#csvBox").hidden = true;
+  }
+  function csv() {
+    const rows = ["\u5229\u7528\u8005,\u65E5\u6642,\u30BB\u30C3\u30B7\u30E7\u30F3\u5206,\u30E9\u30A6\u30F3\u30C9,\u8AB2\u984C,\u958B\u59CB\u30EC\u30D9\u30EB,\u7D42\u4E86\u30EC\u30D9\u30EB,\u6700\u9AD8\u5230\u9054,\u6B63\u7B54(\u30D2\u30C3\u30C8)\u6570,\u8A66\u884C(\u6A19\u7684)\u6570,\u8AA4\u53CD\u5FDC"], nm = curName().replace(/[,\n]/g, " ");
+    history.forEach((h) => h.rounds.forEach((r, i) => {
+      var _a;
+      return rows.push([nm, new Date(h.t).toLocaleString("ja-JP"), h.min, i + 1, KEYS[r.k][0], r.s, r.e, r.g === "sushi" ? "" : r.b, r.c, r.n, (_a = r.fa) != null ? _a : ""].join(","));
+    }));
+    return rows.join("\n");
+  }
+  $("#copyCsv").onclick = () => {
+    const t = csv(), b = $("#copyCsv"), fb = () => {
+      $("#csvBox").hidden = false;
+      const ta = $("#csvText");
+      ta.value = t;
+      ta.focus();
+      ta.select();
+    };
+    try {
+      navigator.clipboard.writeText(t).then(() => {
+        b.textContent = "\u30B3\u30D4\u30FC\u3057\u307E\u3057\u305F";
+        setTimeout(() => b.textContent = "CSV\u3092\u30B3\u30D4\u30FC", 1800);
+      }, fb);
+    } catch (e) {
+      fb();
+    }
+  };
+  $("#resetAsk").onclick = () => {
+    $("#resetBox").hidden = false;
+  };
+  $("#resetNo").onclick = () => {
+    $("#resetBox").hidden = true;
+  };
+  $("#resetYes").onclick = () => {
+    history = [];
+    levels = Object.assign({}, DEF_LV);
+    save();
+    renderRecords();
+  };
+  renderHome();
 })();
 </script>
 
