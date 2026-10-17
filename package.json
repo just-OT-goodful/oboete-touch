@@ -1,0 +1,11 @@
+{
+  "name": "oboete-touch",
+  "private": true,
+  "description": "おぼえてタッチ — ワーキングメモリー訓練アプリ（ビルド用）",
+  "scripts": {
+    "build": "python3 build.py"
+  },
+  "devDependencies": {
+    "esbuild": "^0.23.1"
+  }
+}

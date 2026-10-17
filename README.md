@@ -35,6 +35,18 @@
 - 利用者名は、氏名ではなくイニシャルやIDでの登録をおすすめします。
 - このアプリは検査（評価）の代わりにはならず、医療機器ではありません。療法士が隣について使うことを想定しています。
 
+## 開発
+
+編集対象は `src/oboete-touch.html` のみです。`index.html` はそこから自動生成される
+ビルド済みファイルなので直接編集しないでください。
+
+```bash
+npm install      # 初回のみ
+python3 build.py # src/oboete-touch.html → index.html を生成
+```
+
+詳しい構成・既知の制約・修正履歴は [CLAUDE.md](./CLAUDE.md) を参照してください。
+
 ## 主な文献
 
 - Westerberg H, et al. Brain Injury. 2007（脳卒中後のコンピュータWM訓練）
