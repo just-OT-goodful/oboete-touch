@@ -787,6 +787,50 @@ html{-webkit-text-size-adjust:100%;touch-action:manipulation}
     }
     return actx;
   }
+  let audioUnlocked = false, jaVoice = null;
+  function pickJaVoice() {
+    try {
+      const vs = speechSynthesis.getVoices();
+      jaVoice = vs.find((v) => v.lang === "ja-JP") || vs.find((v) => v.lang && v.lang.toLowerCase().startsWith("ja")) || null;
+    } catch (e) {
+    }
+  }
+  if ("speechSynthesis" in window) {
+    pickJaVoice();
+    try {
+      speechSynthesis.onvoiceschanged = pickJaVoice;
+    } catch (e) {
+    }
+  }
+  function unlockAudio() {
+    ac();
+    if (audioUnlocked) return;
+    audioUnlocked = true;
+    try {
+      if ("speechSynthesis" in window) {
+        speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance(" ");
+        u.volume = 0.01;
+        u.lang = "ja-JP";
+        if (jaVoice) u.voice = jaVoice;
+        speechSynthesis.speak(u);
+      }
+    } catch (e) {
+    }
+  }
+  ["pointerdown", "touchstart", "mousedown", "keydown"].forEach((ev) => document.addEventListener(ev, unlockAudio, { passive: true }));
+  setInterval(() => {
+    try {
+      if ("speechSynthesis" in window && speechSynthesis.speaking) {
+        speechSynthesis.pause();
+        speechSynthesis.resume();
+      }
+    } catch (e) {
+    }
+  }, 9e3);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) ac();
+  });
   function osc(f, dur, when, type, vol) {
     const c = ac();
     if (!c) return;
@@ -881,14 +925,22 @@ html{-webkit-text-size-adjust:100%;touch-action:manipulation}
     }
   };
   const canVoice = () => settings.voice && "speechSynthesis" in window;
+  let curUtt = null;
   function say(t, rate = 0.95) {
     if (!canVoice()) return false;
     try {
-      const u = new SpeechSynthesisUtterance(t);
-      u.lang = "ja-JP";
-      u.rate = rate;
-      speechSynthesis.cancel();
-      speechSynthesis.speak(u);
+      const speakNow = () => {
+        const u = new SpeechSynthesisUtterance(t);
+        u.lang = "ja-JP";
+        u.rate = rate;
+        if (jaVoice) u.voice = jaVoice;
+        curUtt = u;
+        speechSynthesis.speak(u);
+      };
+      if (speechSynthesis.speaking || speechSynthesis.pending) {
+        speechSynthesis.cancel();
+        setTimeout(speakNow, 30);
+      } else speakNow();
       return true;
     } catch (e) {
       return false;
@@ -1991,7 +2043,7 @@ html{-webkit-text-size-adjust:100%;touch-action:manipulation}
         if (done || paused) return;
         done = true;
         clearTimeout(tm);
-        ac();
+        unlockAudio();
         SFX.start();
         res();
       };
@@ -2018,7 +2070,7 @@ html{-webkit-text-size-adjust:100%;touch-action:manipulation}
     const solo = opt.solo, once = solo && opt.len === 1, mins = solo ? once ? 1 : opt.len : settings.minutes;
     const order = solo ? [solo] : GAMES.filter((g) => settings.games[g]);
     if (!order.length) return;
-    ac();
+    unlockAudio();
     const my = ++session;
     paused = false;
     S = { start: Date.now(), total: mins * 6e4, endAt: Date.now() + mins * 6e4, pts: 0, combo: 0, rounds: [], solo, once };
@@ -2118,6 +2170,7 @@ html{-webkit-text-size-adjust:100%;touch-action:manipulation}
   }
   function resume() {
     if (!paused) return;
+    unlockAudio();
     S.endAt += Date.now() - pauseAt;
     paused = false;
     $("#pauseOv").hidden = true;
@@ -2170,7 +2223,7 @@ html{-webkit-text-size-adjust:100%;touch-action:manipulation}
     save();
     renderHome();
     if (settings.sound) {
-      ac();
+      unlockAudio();
       SFX.hit();
     }
   };
@@ -2183,7 +2236,10 @@ html{-webkit-text-size-adjust:100%;touch-action:manipulation}
     settings.voice = !settings.voice;
     save();
     renderHome();
-    if (settings.voice) say("\u8AAD\u307F\u4E0A\u3052\u3092\u30AA\u30F3\u306B\u3057\u307E\u3057\u305F");
+    if (settings.voice) {
+      unlockAudio();
+      say("\u8AAD\u307F\u4E0A\u3052\u3092\u30AA\u30F3\u306B\u3057\u307E\u3057\u305F");
+    }
   };
   $$("[data-speed]").forEach((b) => b.onclick = () => {
     settings.speed = b.dataset.speed;
