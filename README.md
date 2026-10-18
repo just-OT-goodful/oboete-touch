@@ -29,6 +29,9 @@
 
 `index.html` をブラウザで開くだけで動きます。GitHub Pagesを有効にすると、URLからiPadで開けます。
 
+対応環境：iOS / iPadOS 11 以降の Safari（古いiPad、例：iPad Air 1・iPad mini 2 の iOS 12 を含む）、最近の Chrome・Edge・Firefox。
+iOS 10 以前の端末では動きません（その場合は画面に案内が出ます）。
+
 ## 注意
 
 - 記録は、使っている端末のブラウザの中（localStorage）だけに保存されます。別の端末とは共有されません。

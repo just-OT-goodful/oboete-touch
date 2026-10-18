@@ -23,10 +23,10 @@
 
 html,body{min-height:100%}
 body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:17px;line-height:1.7;-webkit-tap-highlight-color:transparent}
-.wrap{max-width:960px;margin:0 auto;padding-inline:16px;padding-block:16px 48px}
+.wrap{max-width:960px;margin:0 auto;padding:16px 16px 48px}
 h1,h2,h3{font-family:var(--f-display);text-wrap:balance;line-height:1.3;margin:0}
 p{margin:0}
-button{font:inherit;color:inherit;cursor:pointer;border:0;background:none;touch-action:manipulation}
+button{font:inherit;color:inherit;cursor:pointer;border:0;background:none;touch-action:manipulation;-webkit-appearance:none;appearance:none}
 button:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:.4em;min-height:56px;padding:0 1.4em;border-radius:999px;background:var(--accent);color:var(--accent-ink);font-family:var(--f-display);font-weight:700;font-size:1.1rem;transition:transform .12s}
 .btn:active{transform:scale(.96)}
@@ -203,7 +203,7 @@ button.stop[aria-pressed="true"]{border-color:var(--accent);box-shadow:var(--sha
 
 /* sushi */
 .belt{position:relative;width:min(100%,600px);height:250px;overflow:hidden}
-.lane{position:absolute;left:0;right:0;top:150px;height:44px;background:repeating-linear-gradient(90deg,#7C8C96 0 26px,#6A7A84 26px 52px);border-block:4px solid #4F5D66}
+.lane{position:absolute;left:0;right:0;top:150px;height:44px;background:repeating-linear-gradient(90deg,#7C8C96 0 26px,#6A7A84 26px 52px);border-top:4px solid #4F5D66;border-bottom:4px solid #4F5D66}
 .lane.move{animation:lane 1s linear infinite}
 @keyframes lane{to{background-position:52px 0}}
 .plate{position:absolute;left:50%;top:44%;width:min(62%,280px);transform:translate(-50%,-50%) translateX(-170%);opacity:0;transition:transform .45s ease,opacity .35s}
@@ -290,7 +290,7 @@ button.stop[aria-pressed="true"]{border-color:var(--accent);box-shadow:var(--sha
 .medleft{font-weight:700;min-width:7em;text-align:center}
 
 /* feedback */
-.fb{position:absolute;inset:0;border-radius:28px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.74);backdrop-filter:blur(2px);z-index:5}
+.fb{position:absolute;inset:0;border-radius:28px;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,.74);-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px);z-index:5}
 .fb-in{text-align:center;animation:pop .3s ease-out;padding:0 12px}
 .fb-big{font-family:var(--f-display);font-weight:900;font-size:clamp(2.4rem,8vw,3.8rem)}
 .fb-big.ok{color:#22804E}.fb-big.ng{color:#A8552F}
@@ -327,7 +327,7 @@ table{border-collapse:collapse;width:100%;font-size:.9rem;font-variant-numeric:t
 th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
 th{font-size:.78rem;letter-spacing:.08em;color:var(--muted)}
 .confirm{background:var(--surface);border:2px solid var(--oops);border-radius:14px;padding:14px;display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:12px}
-textarea{width:100%;min-height:120px;font:inherit;font-size:.85rem;border-radius:12px;border:2px solid var(--line);background:var(--surface-2);color:var(--ink);padding:10px}
+textarea{-webkit-appearance:none;appearance:none;width:100%;min-height:120px;font:inherit;font-size:.85rem;border-radius:12px;border:2px solid var(--line);background:var(--surface-2);color:var(--ink);padding:10px}
 .about{background:var(--surface);border-radius:var(--r);padding:22px;display:flex;flex-direction:column;gap:14px}
 .about h2{font-size:1.25rem;margin-top:8px}
 .about p,.about li{max-width:68ch}
@@ -345,22 +345,24 @@ textarea{width:100%;min-height:120px;font:inherit;font-size:.85rem;border-radius
 .ucard form{display:flex;flex-direction:column;gap:8px}
 .uadd{margin-top:16px;background:var(--surface);border-radius:var(--r);padding:16px 20px;display:flex;flex-direction:column;gap:10px}
 .uadd .row{display:flex;gap:10px;flex-wrap:wrap}
-input[type="text"]{flex:1;min-width:0;min-height:52px;border-radius:12px;border:2px solid var(--line);background:var(--surface-2);color:var(--ink);font:inherit;font-size:1.1rem;padding:0 14px}
+input[type="text"]{-webkit-appearance:none;appearance:none;flex:1;min-width:0;min-height:52px;border-radius:12px;border:2px solid var(--line);background:var(--surface-2);color:var(--ink);font:inherit;font-size:1.1rem;padding:0 14px}
 input[type="text"]:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 
 *,*::before,*::after{box-sizing:border-box}
 /* 古いiPad（iOS 14以前）向けの代替指定 */
 .card .back,.sky svg.lines,.fb,.pause{top:0;left:0;right:0;bottom:0}
 @supports not (aspect-ratio:1/1){
-  .sky{height:0;padding-bottom:75%}
+  .sky::before{content:"";display:block;padding-top:75%} /* 幅に対する比率（親ではなく.sky自身の幅） */
   .star{height:22.67%}
+  .card{padding:0} /* ボタン標準の内側余白があると縦横比がずれる */
   .card::before{content:"";display:block;padding-top:133.33%}
   .card .face{position:absolute;top:0;left:0;right:0;bottom:0}
+  .scene.cards{justify-content:stretch} /* カードに中身の幅がないため、列を枠いっぱいに広げる */
   .ibadge,.rd{flex:none}
 }
 .ver{margin-top:14px;font-size:.8rem;color:var(--muted)}
 /* iPad対策：html/bodyにoverflowを付けるとSafariで縦スクロールが止まるため、はみ出し防止は内側の.wrapで行う */
-.wrap{overflow-x:clip}
+.wrap{overflow-x:hidden;overflow-x:clip}
 html{-webkit-text-size-adjust:100%;touch-action:manipulation}
 .scene,.rounds,.hud,.msg,.stop{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 /* タブレット横向き：縦に収まらない課題は左右2列に並べる */
@@ -380,7 +382,7 @@ html{-webkit-text-size-adjust:100%;touch-action:manipulation}
 .scene,.scenewrap{max-width:100%}
 /* スマホ：1画面に収まるよう全体を詰める */
 @media (max-width:520px){
-  .wrap{padding-block:10px 32px}
+  .wrap{padding-top:10px;padding-bottom:32px}
   .hud{gap:8px}
   .hud .ghost{min-height:42px;padding:0 .8em}
   .points{font-size:1.15rem;padding:.2em .8em}
@@ -467,7 +469,7 @@ html{-webkit-text-size-adjust:100%;touch-action:manipulation}
     <button class="btn sub" id="toRecords">記録</button>
     <button class="btn sub" id="toAbout">指導者向けの解説</button>
   </div>
-  <p class="ver">バージョン 1.4（2026年10月15日）</p>
+  <p class="ver">バージョン 1.5（2026年10月18日）</p>
 </section>
 
 <!-- ================= PLAY ================= -->

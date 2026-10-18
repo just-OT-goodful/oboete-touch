@@ -10,6 +10,8 @@
 src/oboete-touch.html   ← 唯一の編集対象（ソースオブトゥルース）
 build.py                ← src/ から index.html を生成するビルドスクリプト
 package.json             ← esbuildの依存関係（ビルド用、アプリ本体には不要）
+tools/oldsafari.py       ← 古いSafari（iOS 12）の擬似テスト（下記）
+tools/montage.py         ← 擬似テストのスクリーンショットを横に並べる
 index.html               ← GitHub Pages公開用のビルド済みファイル（コミットする）
 README.md                ← 利用者向けの説明
 ```
@@ -37,10 +39,54 @@ Pages設定は Settings → Pages → Deploy from branch: `main` / `/`（root）
 1. `src/oboete-touch.html` の `<script>` の中身を esbuild で `--target=safari11` に変換
    （古いiPad（iOS 11以降）のSafariは、スクリプト中に未対応の構文が1つでもあると
    スクリプト全体が実行されず「画面は出るがタップしても反応しない」状態になるため）。
-2. `<head>`（viewport・PWA用メタタグ等）を追加。
-3. 実機で原因不明のエラーが起きた時のために、画面下に赤帯でエラー内容と
+2. `<style>` の中身にも古いSafari向けの代替指定を自動で足してから esbuild で変換する：
+   - `clamp(a,b,c)` の前に `max(a,min(b,c))`（iOS 12/13用）と単純な値（iOS 11.2以前用）を挿入
+   - `min()` の前に単純な値（%/vwの方）を挿入
+   - `gap` の前に `grid-gap`（iOS 11のgrid用）を挿入
+   - esbuildが `inset` → top/right/bottom/left に展開し、`-webkit-` 接頭辞を付ける
+3. **flexboxの `gap` の代替（polyfill）** を注入する。iOS 14.5未満はflexの `gap` を無視し、
+   ボタンや部品がくっついて画面が崩れる（これが古いiPadでの崩れの最大の原因だった）。
+   - headのスクリプトで flex gap が効くか判定し、効かなければ `<html class="nfg">` にする
+   - body末尾のスクリプトが、ビルド時にCSSから抜き出した「どのセレクタにどのgapか」の表を使い、
+     子要素に margin を付けて同じ間隔を作る（画面が変わるたびに MutationObserver で付け直す）
+   - 新しいブラウザでは `nfg` にならないので何もしない
+   - **CSSで新しく flex の `gap` を書いても、build.py が自動で表に入れるので追加作業は不要。**
+4. `<head>`（viewport・PWA用メタタグ等）を追加。
+5. 実機で原因不明のエラーが起きた時のために、画面下に赤帯でエラー内容と
    `navigator.userAgent` を表示するガードスクリプトを注入する
    （開発者は実機のコンソールを見られないため、これが唯一の手がかりになる）。
+6. iOS 10以前の端末では、エラーの代わりに「iOS 11以降で動きます」という案内を全画面で出す。
+
+## 対応範囲（古いSafari）
+
+- **対応：iOS 11以降**（例：iPad Air 1・iPad mini 2/3 は iOS 12 まで、iPad 第5世代以降）。
+- **非対応：iOS 10以前**（iPad 第4世代以前）。esbuildが Safari 10 向けの `const`/`let`
+  変換に対応していないため（Safari 10の `let`/`const` には不具合がある）。
+  対応させるならBabel等で ES5 まで落とす必要があるが、2012年以前の端末なので見送った。
+- `src/` に新しいCSS・JS機能を書くときは、iOS 11〜14で使えるかを確認すること。
+  特に以下は自動では補えないので、使うなら `@supports` などで代替を書く：
+  `aspect-ratio`（iOS 15）、`overflow:clip`（iOS 16）、論理プロパティ `padding-inline` 等
+  （iOS 14.1）、`:is()`/`:where()`/`:has()`、`color-mix()`、`dvh`、CSSネスト、
+  JSの `Array.prototype.at`/`flat`、`String.prototype.replaceAll`、`structuredClone` 等。
+  （esbuildは構文は変換するが、実行時の関数やCSS機能の代わりは用意しない）
+
+## 古いSafariの擬似テスト（tools/oldsafari.py）
+
+実機がないため、Chromiumで「iOS 12が読めないCSS・JS機能を取り除いた状態」を再現して確認する。
+3つのモードで全画面・全12ゲームを撮影し、数値（はみ出し・高さ・JSエラー）を比較する：
+- `modern`：普通のChromium
+- `old`：flex gap を無効化＋polyfill強制ON、`clamp()`/`aspect-ratio`/`overflow:clip` を削除、
+  iOS 12にないJS関数を削除（＝修正後の古いiPadの見た目）
+- `broken`：`old` と同じだがpolyfillなし（＝修正前の古いiPadの見た目。テストが効いている確認用）
+
+```bash
+pip install playwright pillow --break-system-packages   # 初回のみ
+python3 tools/oldsafari.py "$PWD/index.html" /tmp/os            # 全部（15分ほど）
+VP=phone ONLY=cards python3 tools/oldsafari.py "$PWD/index.html" /tmp/os   # 一部だけ
+python3 tools/montage.py /tmp/os ipad_p home,cards /tmp/mt        # 3モードを横に並べた画像
+```
+`modern` と `old` の見た目が一致していればOK。これでも実際のWebKitではないので、
+最後は実機での確認をユーザーに依頼すること。
 
 ## テスト環境の制約（重要）
 
@@ -83,6 +129,16 @@ Pages設定は Settings → Pages → Deploy from branch: `main` / `/`（root）
   - **ハードウェアのマナースイッチ（サイレントスイッチ）がオンの場合、iOSはWeb
     Audioの音を強制的に消す仕様であり、これはアプリ側のコードでは解除できない。**
     ユーザーから「音が出ない」と報告があったら、このスイッチの確認も必ず案内すること。
+
+- 古いSafariで画面が崩れる不具合（2026年10月18日）→
+  - flexboxの `gap` 非対応（iOS 14.5未満）が主因。build.py で polyfill を注入（上記）。
+  - 星空の `aspect-ratio` 代替が `padding-bottom:75%`（親の幅基準）で縦に伸びすぎていた
+    → `.sky::before{padding-top:75%}`（自身の幅基準）に修正。
+  - 神経衰弱のカードが小さく潰れていた → 代替指定で `.scene.cards{justify-content:stretch}`
+    と `.card{padding:0}`（ボタン標準の内側余白で縦横比がずれる）を追加。
+  - 論理プロパティ（`padding-inline` 等）を通常の上下左右指定に書き換え。
+  - `.wrap` に `overflow-x:hidden` を `clip` の前に追加（iOS 15以前用）。
+  - ボタン・入力欄に `-webkit-appearance:none`（古いiOSの標準の見た目を消す）。
 
 ## アプリのアーキテクチャ（ざっくり）
 
