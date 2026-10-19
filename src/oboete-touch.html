@@ -120,6 +120,7 @@ button.stop[aria-pressed="true"]{border-color:var(--accent);box-shadow:var(--sha
 /* cards */
 .cinfo{font-weight:700;color:#F2F7F3;min-height:1.6em;text-align:center}
 .cards{display:grid;gap:8px;width:min(100%,440px)}
+.scene.cards{margin-left:auto;margin-right:auto} /* 神経衰弱の盤を画面の中央に */
 .card{position:relative;aspect-ratio:3/4;max-width:100%;border-radius:10px;background:#FFFFFF;overflow:hidden;box-shadow:0 2px 6px rgba(0,0,0,.25);transition:transform .15s}
 .card .face{display:flex;align-items:center;justify-content:center;width:100%;height:100%}
 .card .face svg{width:80%;height:80%}
@@ -134,7 +135,8 @@ button.stop[aria-pressed="true"]{border-color:var(--accent);box-shadow:var(--sha
 .board .bl{font-size:.8rem;color:#9AA5B1;font-weight:700}
 .bd{font-family:var(--f-display);font-weight:900;font-size:clamp(1.7rem,7vw,2.3rem);color:#FFB547;letter-spacing:.06em;min-height:1.4em;display:flex;align-items:center;justify-content:center;gap:12px}
 .bd .lc{width:18px;height:18px;border-radius:4px;display:inline-block}
-.rail{position:relative;width:min(100%,560px);height:120px;overflow:hidden;border-bottom:6px solid #5A626A}
+.rail{position:relative;width:min(100%,560px);height:160px;overflow:hidden;border-bottom:6px solid #5A626A} /* 電車（幅400pxで高さ153px）の屋根が切れないように */
+@media (max-width:520px){.rail{height:122px}}
 .trainbox{position:absolute;left:50%;bottom:0;width:min(86%,400px);transform:translateX(-50%) translateX(-160%);opacity:0;transition:transform .5s ease,opacity .35s}
 .trainbox.in{transform:translateX(-50%);opacity:1}
 .trainbox.out{transform:translateX(-50%) translateX(160%);opacity:0}
@@ -361,6 +363,9 @@ input[type="text"]:focus-visible{outline:3px solid var(--accent);outline-offset:
   .ibadge,.rd{flex:none}
 }
 .ver{margin-top:14px;font-size:.8rem;color:var(--muted)}
+/* 課題中は上下の余白を詰めて、見える高さを課題に回す */
+.inplay .wrap{padding-top:8px;padding-bottom:8px}
+@media (orientation:landscape) and (max-height:720px){.inplay .rounds{margin:4px 0 0}.inplay .msg{min-height:1.9em}}
 /* iPad対策：html/bodyにoverflowを付けるとSafariで縦スクロールが止まるため、はみ出し防止は内側の.wrapで行う */
 .wrap{overflow-x:hidden;overflow-x:clip}
 html{-webkit-text-size-adjust:100%;touch-action:manipulation}
@@ -469,7 +474,7 @@ html{-webkit-text-size-adjust:100%;touch-action:manipulation}
     <button class="btn sub" id="toRecords">記録</button>
     <button class="btn sub" id="toAbout">指導者向けの解説</button>
   </div>
-  <p class="ver">バージョン 1.5（2026年10月18日）</p>
+  <p class="ver">バージョン 1.6（2026年10月19日）</p>
 </section>
 
 <!-- ================= PLAY ================= -->
@@ -798,9 +803,23 @@ function say(t,rate=.95){
 let session=0,paused=false,pauseAt=0,wake=null,clock=null,S=null,collector=null;
 const raw=ms=>new Promise(r=>setTimeout(r,ms));
 async function wait(ms){let left=ms*SPEED[settings.speed];while(left>0){const c=Math.min(100,left);await raw(c);if(!paused)left-=c}}
-function show(id){$$('.screen').forEach(s=>s.hidden=s.id!==id);window.scrollTo(0,0)}
+function show(id){$$('.screen').forEach(s=>s.hidden=s.id!==id);document.body.classList[id==='play'?'add':'remove']('inplay');window.scrollTo(0,0)}
 function msg(t){$('#msg').textContent=t}
-function scene(cls,html){const s=$('#scene');s.className='scene '+cls;s.innerHTML=html}
+function scene(cls,html){const s=$('#scene');s.className='scene '+cls;s.innerHTML=html;fitSoon(true)}
+/* 課題の画面を、実際に見えている高さに収める。iPadのSafariはツールバー分だけ見える高さが短く、
+   画面によっては下が切れてスクロールが必要になるため、はみ出す分だけ #scene を縮小（zoom）する。
+   zoom は古いSafariでも使え、タッチの位置もずれない */
+let fitZ=1,fitT=null;
+/* 必ず縮小前の大きさで測ってから一度で決める（古いWebKitは縮小中の要素の座標を別の基準で返すため） */
+function fitPlay(){const sc=$('#scene');if(!sc||$('#play').hidden)return;
+  sc.style.zoom='';const r=sc.getBoundingClientRect(),avail=window.innerHeight-(r.top+(window.pageYOffset||0))-8;
+  let z=1;if(r.height>avail+1&&r.height>0)z=Math.max(.55,avail/r.height);
+  if(z<fitZ||Math.abs(z-fitZ)>.03)fitZ=z;
+  if(fitZ<.999)sc.style.zoom=String(Math.round(fitZ*1000)/1000)}
+function fitSoon(reset){if(reset)fitZ=1;(window.requestAnimationFrame||setTimeout)(()=>{fitPlay();setTimeout(fitPlay,80)})}
+window.addEventListener('resize',()=>{clearTimeout(fitT);fitT=setTimeout(()=>{fitZ=1;fitPlay()},150)});
+window.addEventListener('orientationchange',()=>setTimeout(()=>{fitZ=1;fitPlay()},400));
+try{new MutationObserver(()=>{clearTimeout(fitT);fitT=setTimeout(fitPlay,30)}).observe(document.getElementById('scene'),{childList:true,subtree:true})}catch(e){}
 function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.random()*(i+1)|0;[a[i],a[j]]=[a[j],a[i]]}return a}
 const range=n=>[...Array(n).keys()];
 const rnd=(a,b)=>a+(Math.random()*(b-a+1)|0);

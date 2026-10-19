@@ -10,7 +10,8 @@
 src/oboete-touch.html   ← 唯一の編集対象（ソースオブトゥルース）
 build.py                ← src/ から index.html を生成するビルドスクリプト
 package.json             ← esbuildの依存関係（ビルド用、アプリ本体には不要）
-tools/oldsafari.py       ← 古いSafari（iOS 12）の擬似テスト（下記）
+tools/oldwebkit/         ← 本物の古いWebKit（iOS 11〜14相当）で撮影・測定する道具（下記）
+tools/oldsafari.py       ← 古いSafari（iOS 12）の擬似テスト（Chromium上、下記）
 tools/montage.py         ← 擬似テストのスクリーンショットを横に並べる
 index.html               ← GitHub Pages公開用のビルド済みファイル（コミットする）
 README.md                ← 利用者向けの説明
@@ -69,6 +70,25 @@ Pages設定は Settings → Pages → Deploy from branch: `main` / `/`（root）
   （iOS 14.1）、`:is()`/`:where()`/`:has()`、`color-mix()`、`dvh`、CSSネスト、
   JSの `Array.prototype.at`/`flat`、`String.prototype.replaceAll`、`structuredClone` 等。
   （esbuildは構文は変換するが、実行時の関数やCSS機能の代わりは用意しない）
+
+## 本物の古いWebKitでの確認（tools/oldwebkit/）— こちらを優先
+
+Chromiumの擬似テストでは見つからない崩れがある（2026年10月19日にこれで多数見つかった）。
+Ubuntu 18.04 の **WebKitGTK 2.20（≒ iOS 11.3〜12）** と 20.04 の **2.28（≒ iOS 13.4〜14）** を
+chroot で動かし、本物のWebKitで画面を撮影・測定できる。
+
+```bash
+sudo tools/oldwebkit/setup.sh                 # 初回のみ（root・Ubuntuのパッケージサーバー接続が必要、約10分）
+cp index.html /opt/wk/work/ot/index.html
+/opt/wk/work/tools/otrun.sh ot                # 全12ゲーム＋ホーム等。"NG" 行が問題（下記の注意も参照）
+```
+- 画面サイズは **iPadのSafariで実際に見える高さ**（横1024×661・縦768×917：ツールバーとタブ表示時）。
+  画面いっぱい（1024×768）で試すと、ツールバー分の約100pxの不足を見逃す。
+- `wk.py` は plan.json（load / js / shot / tap / drag）を順に実行する小さな自動操作ツール。
+  `drag` は xdotool で本物のマウス操作。タッチは JS で TouchEvent を作って試す（2.20のみ touch あり）。
+- 注意：zoom で縮めた画面（下記）は、古いWebKitが座標を別の基準で返すため「outside-viewport-x」
+  「below」と出ることがある。スクリーンショットで目視確認すること。
+- 寿司の皿・電車は、出入りのアニメーション中は枠外にいる（透明）ので、その時の「はみ出し」は問題ない。
 
 ## 古いSafariの擬似テスト（tools/oldsafari.py）
 
@@ -139,6 +159,18 @@ python3 tools/montage.py /tmp/os ipad_p home,cards /tmp/mt        # 3モード�
   - 論理プロパティ（`padding-inline` 等）を通常の上下左右指定に書き換え。
   - `.wrap` に `overflow-x:hidden` を `clip` の前に追加（iOS 15以前用）。
   - ボタン・入力欄に `-webkit-appearance:none`（古いiOSの標準の見た目を消す）。
+
+- 本物の古いWebKitで総点検（2026年10月19日、v1.6）→
+  - **見える高さに収まらず、スクロールしないと下が見えなかった**（横向き：星空・電話・お薬・ロッカー・予定、
+    縦向き：バス・お財布）。→ `fitPlay()` が課題の画面 `#scene` を、実際に見えている高さに収まるよう
+    `zoom` で縮める（縮める前の大きさで測ってから一度で決める）。課題中は `body.inplay` で上下の余白を詰める。
+    新しい課題を足しても自動で効く。
+  - 駅のホーム：電車（幅400pxで高さ153px）の屋根が線路の枠（120px）で切れていた → `.rail` を160pxに。
+  - 神経衰弱の盤が左に寄っていた → 中央寄せ。
+  - **`env()`/`var()` を含む宣言は古いブラウザでも「有効」と判定され、前の代替指定を上書きしたうえで
+    計算できずに「指定なし」になる**（だんどり道場ではこれで画面の高さが消えていた）。
+    `dvh`・`clamp()` などを `var()`/`env()` と同じ宣言に混ぜないこと。
+  - 絵文字は使っていない（すべてSVG）。使う場合、iOS 12までの端末では Emoji 12 以降が□になる。
 
 ## アプリのアーキテクチャ（ざっくり）
 

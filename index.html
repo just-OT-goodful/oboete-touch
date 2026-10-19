@@ -711,6 +711,10 @@ button.stop[aria-pressed=true] {
   width: 100%;
   width: min(100%, 440px);
 }
+.scene.cards {
+  margin-left: auto;
+  margin-right: auto;
+}
 .card {
   position: relative;
   aspect-ratio: 3/4;
@@ -800,9 +804,14 @@ button.stop[aria-pressed=true] {
   position: relative;
   width: 100%;
   width: min(100%, 560px);
-  height: 120px;
+  height: 160px;
   overflow: hidden;
   border-bottom: 6px solid #5A626A;
+}
+@media (max-width:520px) {
+  .rail {
+    height: 122px;
+  }
 }
 .trainbox {
   position: absolute;
@@ -2146,6 +2155,18 @@ input[type=text]:focus-visible {
   font-size: .8rem;
   color: var(--muted);
 }
+.inplay .wrap {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+@media (orientation:landscape) and (max-height:720px) {
+  .inplay .rounds {
+    margin: 4px 0 0;
+  }
+  .inplay .msg {
+    min-height: 1.9em;
+  }
+}
 .wrap {
   overflow-x: hidden;
   overflow-x: clip;
@@ -2452,7 +2473,7 @@ html {
     <button class="btn sub" id="toRecords">記録</button>
     <button class="btn sub" id="toAbout">指導者向けの解説</button>
   </div>
-  <p class="ver">バージョン 1.5（2026年10月18日）</p>
+  <p class="ver">バージョン 1.6（2026年10月19日）</p>
 </section>
 
 <!-- ================= PLAY ================= -->
@@ -2914,6 +2935,7 @@ html {
   }
   function show(id) {
     $$(".screen").forEach((s) => s.hidden = s.id !== id);
+    document.body.classList[id === "play" ? "add" : "remove"]("inplay");
     window.scrollTo(0, 0);
   }
   function msg(t) {
@@ -2923,6 +2945,43 @@ html {
     const s = $("#scene");
     s.className = "scene " + cls;
     s.innerHTML = html;
+    fitSoon(true);
+  }
+  let fitZ = 1, fitT = null;
+  function fitPlay() {
+    const sc = $("#scene");
+    if (!sc || $("#play").hidden) return;
+    sc.style.zoom = "";
+    const r = sc.getBoundingClientRect(), avail = window.innerHeight - (r.top + (window.pageYOffset || 0)) - 8;
+    let z = 1;
+    if (r.height > avail + 1 && r.height > 0) z = Math.max(0.55, avail / r.height);
+    if (z < fitZ || Math.abs(z - fitZ) > 0.03) fitZ = z;
+    if (fitZ < 0.999) sc.style.zoom = String(Math.round(fitZ * 1e3) / 1e3);
+  }
+  function fitSoon(reset) {
+    if (reset) fitZ = 1;
+    (window.requestAnimationFrame || setTimeout)(() => {
+      fitPlay();
+      setTimeout(fitPlay, 80);
+    });
+  }
+  window.addEventListener("resize", () => {
+    clearTimeout(fitT);
+    fitT = setTimeout(() => {
+      fitZ = 1;
+      fitPlay();
+    }, 150);
+  });
+  window.addEventListener("orientationchange", () => setTimeout(() => {
+    fitZ = 1;
+    fitPlay();
+  }, 400));
+  try {
+    new MutationObserver(() => {
+      clearTimeout(fitT);
+      fitT = setTimeout(fitPlay, 30);
+    }).observe(document.getElementById("scene"), { childList: true, subtree: true });
+  } catch (e) {
   }
   function shuffle(a) {
     for (let i = a.length - 1; i > 0; i--) {
